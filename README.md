@@ -1,0 +1,2 @@
+# ydsci
+Yds kelimeleri
