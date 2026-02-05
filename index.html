@@ -107,6 +107,11 @@
                                 <textarea class="form-control bg-light border-0" id="inputExample" rows="2"
                                     placeholder="Örn: He showed great resilience..."></textarea>
                             </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted small fw-bold">GÖRSEL (OPSİYONEL)</label>
+                                <input type="file" class="form-control bg-light border-0" id="inputImage"
+                                    accept="image/*">
+                            </div>
                             <div class="mb-4">
                                 <label class="form-label text-muted small fw-bold">ETİKET</label>
                                 <select class="form-select bg-light border-0" id="inputTag">
@@ -130,12 +135,30 @@
         </div>
     </div>
 
+    <!-- Word Network Modal -->
+    <div class="modal fade" id="wordNetworkModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content rounded-4 border-0 shadow-lg">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold text-primary" id="networkModalTitle">Kelime Ağı</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-center pt-4 pb-5">
+                    <p class="text-muted mb-4">Bu kelimeyle ilişkili kavramlar:</p>
+                    <div id="network-cloud-container" class="d-flex flex-wrap justify-content-center gap-2">
+                        <!-- Cloud Content Will Be Injected Here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <!-- Tone.js for Audio -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
-    <script src="js/yds_data.js?v=2"></script>
-    <script src="js/main.js?v=2"></script>
+    <script src="js/yds_data.js?v=3"></script>
+    <script src="js/main.js?v=5"></script>
 </body>
 
 </html>
