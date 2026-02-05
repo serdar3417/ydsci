@@ -16,11 +16,21 @@
     <link rel="stylesheet" href="css/style.css">
     <link rel="manifest" href="manifest.json">
     <script>
+        // GLOBAL ERROR ERROR TRAP
+        // This will alert ANY error preventing the app from loading
+        window.onerror = function (msg, url, lineNr, columnNr, error) {
+            alert('HATA OLUŞTU:\n' + msg + '\nDosya: ' + url + '\nSatır: ' + lineNr);
+            return false;
+        };
+
+        // Service Worker Disabled for Debugging
+        /*
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js')
                 .then(() => console.log('Service Worker Registered'))
                 .catch((err) => console.log('SW Error:', err));
         }
+        */
     </script>
 </head>
 
