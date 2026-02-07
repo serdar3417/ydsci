@@ -155,11 +155,102 @@ const Chat = {
         `;
     },
 
+    // List of topics for conversation
+    topics: [
+        { id: 'daily', name: 'Gündelik Hayat', icon: 'bi-cup-hot' },
+        { id: 'business', name: 'İş Dünyası', icon: 'bi-briefcase' },
+        { id: 'academic', name: 'Akademik', icon: 'bi-mortarboard' },
+        { id: 'sport', name: 'Spor', icon: 'bi-bicycle' },
+        { id: 'science', name: 'Bilim', icon: 'bi-rocket-takeoff' },
+        { id: 'politics', name: 'Politika', icon: 'bi-bank' },
+        { id: 'geography', name: 'Coğrafya', icon: 'bi-globe-europe-africa' },
+        { id: 'music', name: 'Müzik', icon: 'bi-music-note-beamed' },
+        { id: 'cinema', name: 'Sinema', icon: 'bi-film' },
+        { id: 'technology', name: 'Teknoloji', icon: 'bi-cpu' },
+        { id: 'health', name: 'Sağlık', icon: 'bi-heart-pulse' },
+        { id: 'literature', name: 'Edebiyat', icon: 'bi-book' },
+        { id: 'history', name: 'Tarih', icon: 'bi-hourglass-split' }
+    ],
+
+    refreshTopics() {
+        // Add installed packs as topics
+        const installedPackIds = Store.state.packs || [];
+        const allPacks = Store.getPacks();
+
+        installedPackIds.forEach(packId => {
+            const pack = allPacks.find(p => p.id === packId);
+            if (pack && !this.topics.find(t => t.id === pack.id)) {
+                this.topics.push({
+                    id: pack.id,
+                    name: pack.title,
+                    icon: pack.icon || 'bi-box-seam',
+                    isPack: true,
+                    words: pack.words // Store words directly or fetch later
+                });
+            }
+        });
+    },
+
     startChat() {
+        if (!this.activeChat) return;
         this.isPaused = false;
         this.updateBtnState();
-        if (!this.activeChat.topic) this.changeTopic();
-        else this.scheduleNextMessage();
+        this.refreshTopics(); // Ensure topics are up to date
+
+        // If no topic selected, show topic selector
+        if (!this.activeChat.topic) {
+            this.showTopicSelector();
+            return;
+        }
+
+        // ... rest of startChat
+        this.scheduleNextMessage();
+    },
+
+    showTopicSelector() {
+        const history = document.getElementById('chat-history');
+        if (!history) return;
+
+        history.innerHTML = `
+            <div class="text-center py-5 slide-in">
+                <h3 class="fw-bold mb-3">Ne Konuşalım?</h3>
+                <p class="text-muted mb-4">Bir konu seç, uzmanlar tartışsın.</p>
+                <div class="row g-3 justify-content-center px-3">
+                    ${this.topics.map(t => `
+                        <div class="col-6 col-md-4">
+                            <button class="btn btn-outline-primary w-100 py-3 rounded-4 shadow-sm border-2 h-100 d-flex flex-column align-items-center gap-2"
+                                onclick="Chat.selectTopic('${t.id}')">
+                                <i class="bi ${t.icon} fs-1"></i>
+                                <span class="fw-bold">${t.name}</span>
+                            </button>
+                        </div>
+                    `).join('')}
+                     <div class="col-6 col-md-4">
+                        <button class="btn btn-outline-danger w-100 py-3 rounded-4 shadow-sm border-2 h-100 d-flex flex-column align-items-center gap-2"
+                            onclick="Chat.startScenarioMode()">
+                            <i class="bi bi-joystick fs-1"></i>
+                            <span class="fw-bold">Senaryo Modu</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    selectTopic(topicId) {
+        // Find topic
+        const topicObj = this.topics.find(t => t.id === topicId);
+        this.activeChat.topic = topicObj || { name: 'Genel' };
+
+        // Clear selector and start
+        const history = document.getElementById('chat-history');
+        history.innerHTML = '';
+        this.addSystemMessage(`Konu Seçildi: ${this.activeChat.topic.name} 💬`);
+
+        // Initial message
+        setTimeout(() => {
+            this.scheduleNextMessage();
+        }, 500);
     },
 
     stopChat() {
@@ -356,16 +447,80 @@ const Chat = {
         historyEl.appendChild(temp.firstElementChild);
         this.scrollToBottom();
 
-        if (this.settings.enabled) {
-            this.speak(rawText || htmlText, sender.gender);
-        }
-    },
+        speak(text, gender) {
+            if (!this.settings.enabled || !text) return;
 
-    addImage(sender, src) {
-        const historyEl = document.getElementById('chat-history');
-        if (!historyEl) return;
-        const alignClass = sender.id === this.activeChat.users[0].id ? 'align-self-start' : 'align-self-end';
-        const msgHTML = `
+            // Cancel previous
+            this.speechSynth.cancel();
+
+            const sentences = [];
+
+            // Check if we have a specific word topic to pronounce in English
+            let targetWord = null;
+            if (this.activeChat && this.activeChat.topic && this.activeChat.topic.word) {
+                targetWord = this.activeChat.topic.word;
+            }
+
+            // Split text if target word exists
+            if (targetWord && text.toLowerCase().includes(targetWord.toLowerCase())) {
+                // Case insensitive split
+                const regex = new RegExp(`(${targetWord})`, 'gi');
+                const parts = text.split(regex);
+
+                parts.forEach(part => {
+                    if (part.toLowerCase() === targetWord.toLowerCase()) {
+                        sentences.push({ text: part, lang: 'en-US' });
+                    } else if (part.trim().length > 0) {
+                        sentences.push({ text: part, lang: 'tr-TR' });
+                    }
+                });
+            } else {
+                sentences.push({ text: text, lang: 'tr-TR' });
+            }
+
+            // Speak sequentially
+            let index = 0;
+            const speakNext = () => {
+                if (index >= sentences.length) return;
+
+                const item = sentences[index];
+                const utterance = new SpeechSynthesisUtterance(item.text);
+
+                // Voice selection logic
+                let voice = null;
+                if (item.lang === 'en-US') {
+                    // Try to find a good English voice
+                    voice = this.speechSynth.getVoices().find(v => v.lang.startsWith('en') && v.name.includes('Google')) ||
+                        this.speechSynth.getVoices().find(v => v.lang.startsWith('en'));
+                } else {
+                    // Try to find a Turkish voice
+                    // Try to match gender if possible (very limited in browsers)
+                    const trVoices = this.speechSynth.getVoices().filter(v => v.lang.startsWith('tr'));
+                    // Simple mapping: gender isn't reliably available in API, so we just pick one if multiple
+                    voice = trVoices[0] || this.speechSynth.getVoices()[0];
+                }
+
+                if (voice) utterance.voice = voice;
+                utterance.rate = this.settings.speed;
+                utterance.pitch = gender === 'female' ? 1.1 : 0.9;
+
+                // Queue next
+                utterance.onend = () => {
+                    index++;
+                    speakNext();
+                };
+
+                this.speechSynth.speak(utterance);
+            };
+
+            speakNext();
+        },
+
+        stopChat() {
+            const historyEl = document.getElementById('chat-history');
+            if (!historyEl) return;
+            const alignClass = sender.id === this.activeChat.users[0].id ? 'align-self-start' : 'align-self-end';
+            const msgHTML = `
             <div class="d-flex ${alignClass} mb-2" style="max-width: 85%;">
                  <div class="me-2 ${sender.id === this.activeChat.users[0].id ? '' : 'order-2 ms-2'}"></div>
                  <div class="card border-0 shadow-sm p-1 rounded-4">
@@ -373,68 +528,68 @@ const Chat = {
                  </div>
             </div>
          `;
-        const temp = document.createElement('div');
-        temp.innerHTML = msgHTML;
-        historyEl.appendChild(temp.firstElementChild);
-        this.scrollToBottom();
-    },
-
-    addPlaceholderImage(sender, word) {
-        // Fallback or skip
-    },
-
-    addSystemMessage(text) {
-        const historyEl = document.getElementById('chat-history');
-        if (historyEl) {
-            const html = `<div class="text-center small text-muted my-2"><span class="bg-light px-2 py-1 rounded-pill border shadow-sm fw-bold">${text}</span></div>`;
             const temp = document.createElement('div');
-            temp.innerHTML = html;
+            temp.innerHTML = msgHTML;
             historyEl.appendChild(temp.firstElementChild);
             this.scrollToBottom();
-        }
-    },
+        },
 
-    scrollToBottom() {
-        const historyEl = document.getElementById('chat-history');
-        if (historyEl) historyEl.scrollTop = historyEl.scrollHeight;
-    },
+        addPlaceholderImage(sender, word) {
+            // Fallback or skip
+        },
 
-    speak(text, gender) {
-        if (!this.settings.enabled) return;
-        this.speechSynth.cancel();
+        addSystemMessage(text) {
+            const historyEl = document.getElementById('chat-history');
+            if (historyEl) {
+                const html = `<div class="text-center small text-muted my-2"><span class="bg-light px-2 py-1 rounded-pill border shadow-sm fw-bold">${text}</span></div>`;
+                const temp = document.createElement('div');
+                temp.innerHTML = html;
+                historyEl.appendChild(temp.firstElementChild);
+                this.scrollToBottom();
+            }
+        },
 
-        const cleanText = text
-            .replace(/<[^>]*>/g, '')
-            .replace(/https?:\/\/\S+/g, '')
-            .replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '')
-            .replace(/[^\w\s\u00C0-\u017F,.?!]/g, '')
-            .trim();
+        scrollToBottom() {
+            const historyEl = document.getElementById('chat-history');
+            if (historyEl) historyEl.scrollTop = historyEl.scrollHeight;
+        },
 
-        if (!cleanText) return;
+        speak(text, gender) {
+            if (!this.settings.enabled) return;
+            this.speechSynth.cancel();
 
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.lang = 'tr-TR';
-        utterance.pitch = gender === 'female' ? 1.2 : 0.9;
-        utterance.rate = this.settings.speed;
+            const cleanText = text
+                .replace(/<[^>]*>/g, '')
+                .replace(/https?:\/\/\S+/g, '')
+                .replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '')
+                .replace(/[^\w\s\u00C0-\u017F,.?!]/g, '')
+                .trim();
 
-        this.speechSynth.speak(utterance);
-    },
+            if (!cleanText) return;
 
-    toggleAudio() {
-        this.settings.enabled = !this.settings.enabled;
-        document.getElementById('audio-icon').className = this.settings.enabled ? 'bi bi-volume-up-fill' : 'bi bi-volume-mute-fill';
-    },
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            utterance.lang = 'tr-TR';
+            utterance.pitch = gender === 'female' ? 1.2 : 0.9;
+            utterance.rate = this.settings.speed;
 
-    exitChat() {
-        this.stopChat();
-        UI.switchView('home');
-    },
+            this.speechSynth.speak(utterance);
+        },
 
-    showCharacterModal() {
-        const listBody = document.getElementById('char-list-body');
-        if (!listBody) return;
+        toggleAudio() {
+            this.settings.enabled = !this.settings.enabled;
+            document.getElementById('audio-icon').className = this.settings.enabled ? 'bi bi-volume-up-fill' : 'bi bi-volume-mute-fill';
+        },
 
-        listBody.innerHTML = `
+        exitChat() {
+            this.stopChat();
+            UI.switchView('home');
+        },
+
+        showCharacterModal() {
+            const listBody = document.getElementById('char-list-body');
+            if (!listBody) return;
+
+            listBody.innerHTML = `
             <ul class="list-group list-group-flush">
                 ${this.characters.map((char, index) => `
                     <li class="list-group-item d-flex align-items-center justify-content-between p-2">
@@ -465,49 +620,49 @@ const Chat = {
             </ul>
         `;
 
-        const modal = new bootstrap.Modal(document.getElementById('charModal'));
-        modal.show();
-    },
+            const modal = new bootstrap.Modal(document.getElementById('charModal'));
+            modal.show();
+        },
 
-    updateCharName(id, val) { this.characters.find(c => c.id === id).name = val; },
-    updateCharColor(id, val) { this.characters.find(c => c.id === id).color = val; },
-    updateCharGender(id, val) { this.characters.find(c => c.id === id).gender = val; },
+        updateCharName(id, val) { this.characters.find(c => c.id === id).name = val; },
+        updateCharColor(id, val) { this.characters.find(c => c.id === id).color = val; },
+        updateCharGender(id, val) { this.characters.find(c => c.id === id).gender = val; },
 
-    updateCharPhoto(id, input) {
-        if (input.files[0]) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const char = this.characters.find(c => c.id === id);
-                char.photo = e.target.result;
-                char.avatar = '';
-                this.showCharacterModal();
-            };
-            reader.readAsDataURL(input.files[0]);
-        }
-    },
+        updateCharPhoto(id, input) {
+            if (input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const char = this.characters.find(c => c.id === id);
+                    char.photo = e.target.result;
+                    char.avatar = '';
+                    this.showCharacterModal();
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        },
 
-    addNewCharacter() {
-        this.characters.push({ id: 'char_' + Date.now(), name: 'Yeni', gender: 'female', avatar: '👤', color: '#fff', voice: null });
-        this.showCharacterModal();
-    },
-
-    removeCharacter(id) {
-        if (this.characters.length > 2) {
-            this.characters = this.characters.filter(c => c.id !== id);
+        addNewCharacter() {
+            this.characters.push({ id: 'char_' + Date.now(), name: 'Yeni', gender: 'female', avatar: '👤', color: '#fff', voice: null });
             this.showCharacterModal();
-        } else {
-            alert("En az 2 kişi lazım!");
-        }
-    },
+        },
 
-    showInterventionModal() {
-        this.isPaused = true;
-        this.updateBtnState();
-        const listBody = document.getElementById('word-select-body');
-        const words = Store.state.words;
-        const sorted = [...words].sort((a, b) => (b.isFavorite === true) - (a.isFavorite === true));
+        removeCharacter(id) {
+            if (this.characters.length > 2) {
+                this.characters = this.characters.filter(c => c.id !== id);
+                this.showCharacterModal();
+            } else {
+                alert("En az 2 kişi lazım!");
+            }
+        },
 
-        listBody.innerHTML = `
+        showInterventionModal() {
+            this.isPaused = true;
+            this.updateBtnState();
+            const listBody = document.getElementById('word-select-body');
+            const words = Store.state.words;
+            const sorted = [...words].sort((a, b) => (b.isFavorite === true) - (a.isFavorite === true));
+
+            listBody.innerHTML = `
             <div class="list-group list-group-flush">
                  ${sorted.map(w => `
                     <button class="list-group-item list-group-item-action d-flex justify-content-between p-3" onclick="Chat.selectTopic('${w.id}')">
@@ -520,95 +675,95 @@ const Chat = {
                  `).join('')}
             </div>
         `;
-        const modal = new bootstrap.Modal(document.getElementById('wordSelectModal'));
-        modal.show();
-    },
+            const modal = new bootstrap.Modal(document.getElementById('wordSelectModal'));
+            modal.show();
+        },
 
-    // --- SCENARIO MODE ---
-    startScenarioMode() {
-        UI.switchView('chat');
-        this.renderChatInterface(document.getElementById('view-chat'));
-        this.activeChat = {
-            users: [this.characters[0]], // One teacher
-            topic: null,
-            history: [],
-            isScenario: true,
-            step: 0
-        };
-        this.addSystemMessage("Senaryo Modu: Mülakat 🎭");
+        // --- SCENARIO MODE ---
+        startScenarioMode() {
+            UI.switchView('chat');
+            this.renderChatInterface(document.getElementById('view-chat'));
+            this.activeChat = {
+                users: [this.characters[0]], // One teacher
+                topic: null,
+                history: [],
+                isScenario: true,
+                step: 0
+            };
+            this.addSystemMessage("Senaryo Modu: Mülakat 🎭");
 
-        setTimeout(() => {
-            const firstMsg = "Merhaba! YDS sınavına hazırlık nasıl gidiyor? En çok zorlandığın kelime türü nedir?";
-            this.addMessage(this.characters[0], firstMsg);
-            this.showUserOptions([
-                { text: "Akademik fiillerde zorlanıyorum.", score: 10 },
-                { text: "Bağlaçlar kafamı karıştırıyor.", score: 10 },
-                { text: "Kelime haznem genel olarak zayıf.", score: 5 }
-            ]);
-        }, 1000);
-    },
+            setTimeout(() => {
+                const firstMsg = "Merhaba! YDS sınavına hazırlık nasıl gidiyor? En çok zorlandığın kelime türü nedir?";
+                this.addMessage(this.characters[0], firstMsg);
+                this.showUserOptions([
+                    { text: "Akademik fiillerde zorlanıyorum.", score: 10 },
+                    { text: "Bağlaçlar kafamı karıştırıyor.", score: 10 },
+                    { text: "Kelime haznem genel olarak zayıf.", score: 5 }
+                ]);
+            }, 1000);
+        },
 
-    showUserOptions(options) {
-        const historyEl = document.getElementById('chat-history');
-        const optDiv = document.createElement('div');
-        optDiv.className = "d-grid gap-2 my-3 px-4";
-        optDiv.innerHTML = options.map(opt => `
+        showUserOptions(options) {
+            const historyEl = document.getElementById('chat-history');
+            const optDiv = document.createElement('div');
+            optDiv.className = "d-grid gap-2 my-3 px-4";
+            optDiv.innerHTML = options.map(opt => `
             <button class="btn btn-outline-primary rounded-pill text-start" onclick="Chat.handleUserReply('${opt.text}', ${opt.score})">
                 <i class="bi bi-chat-left-dots me-2"></i> ${opt.text}
             </button>
         `).join('');
-        historyEl.appendChild(optDiv);
-        this.scrollToBottom();
-    },
+            historyEl.appendChild(optDiv);
+            this.scrollToBottom();
+        },
 
-    handleUserReply(text, score) {
-        // Remove options
-        const historyEl = document.getElementById('chat-history');
-        const btnGroup = historyEl.lastElementChild;
-        if (btnGroup) btnGroup.remove();
+        handleUserReply(text, score) {
+            // Remove options
+            const historyEl = document.getElementById('chat-history');
+            const btnGroup = historyEl.lastElementChild;
+            if (btnGroup) btnGroup.remove();
 
-        // Add user message
-        const userHtml = `
+            // Add user message
+            const userHtml = `
             <div class="d-flex align-self-end mb-3 justify-content-end" style="max-width: 85%;">
                 <div class="p-3 rounded-4 bg-primary text-white shadow-sm">
                     ${text}
                 </div>
             </div>
         `;
-        const temp = document.createElement('div');
-        temp.innerHTML = userHtml;
-        historyEl.appendChild(temp.firstElementChild);
+            const temp = document.createElement('div');
+            temp.innerHTML = userHtml;
+            historyEl.appendChild(temp.firstElementChild);
 
-        Store.updateUserPoints(score || 5);
+            Store.updateUserPoints(score || 5);
 
-        // Reply logic (Mock)
-        setTimeout(() => {
-            const replies = [
-                "Anlıyorum. O zaman 'Advocate' gibi kelimelere odaklanalım.",
-                "Bağlaçlar kilit noktadır. 'However' ve 'Therefore' arasındaki farkı bilmek gerekir.",
-                "Bol bol okuma yaparak bunu aşabilirsin."
-            ];
-            const reply = replies[Math.floor(Math.random() * replies.length)];
-            this.addMessage(this.characters[0], reply);
-
-            // Continue loop or end
+            // Reply logic (Mock)
             setTimeout(() => {
-                this.addSystemMessage("Senaryo Tamamlandı! +10 Puan");
-                Store.updateUserPoints(10);
-            }, 2000);
+                const replies = [
+                    "Anlıyorum. O zaman 'Advocate' gibi kelimelere odaklanalım.",
+                    "Bağlaçlar kilit noktadır. 'However' ve 'Therefore' arasındaki farkı bilmek gerekir.",
+                    "Bol bol okuma yaparak bunu aşabilirsin."
+                ];
+                const reply = replies[Math.floor(Math.random() * replies.length)];
+                this.addMessage(this.characters[0], reply);
 
-        }, 1000);
-    },
+                // Continue loop or end
+                setTimeout(() => {
+                    this.addSystemMessage("Senaryo Tamamlandı! +10 Puan");
+                    Store.updateUserPoints(10);
+                }, 2000);
 
-    selectTopic(id) {
-        const word = Store.state.words.find(w => w.id === id);
-        if (word) {
-            this.activeChat.topic = word;
-            this.activeChat.topicTurns = 0;
-            const el = document.getElementById('wordSelectModal');
-            bootstrap.Modal.getInstance(el).hide();
-            this.addSystemMessage(`Konu Seçildi: ${word.word}`);
-            this.startChat();
+            }, 1000);
+        },
+
+        selectTopic(id) {
+            const word = Store.state.words.find(w => w.id === id);
+            if (word) {
+                this.activeChat.topic = word;
+                this.activeChat.topicTurns = 0;
+                const el = document.getElementById('wordSelectModal');
+                bootstrap.Modal.getInstance(el).hide();
+                this.addSystemMessage(`Konu Seçildi: ${word.word}`);
+                this.startChat();
+            }
         }
-    }
-};
+    };

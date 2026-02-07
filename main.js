@@ -23,10 +23,102 @@ const Store = {
             theme: 'night',
             completedTasks: [],
             settings: { mute: false },
-            stats: { totalLearned: 0, streak: 0, lastLogin: null },
-            dailyGoal: { target: 20, current: 0, lastDate: null }
+            stats: {
+                totalLearned: 0,
+                streak: 0,
+                lastLogin: null,
+                streakCalendar: [] // Dates "YYYY-MM-DD"
+            },
+            dailyGoal: { target: 20, current: 0, lastDate: null },
+            mistakeBank: [], // Array of word IDs
+            quests: [], // Daily quests: { id, text, target, current, reward, completed }
+            resfebes: {} // Map: wordId -> imageUrl
         },
         league: []
+    },
+
+    // --- ADVANCED FEATURES LOGIC ---
+
+    addToMistakeBank(wordId) {
+        if (!this.state.user.mistakeBank.includes(wordId)) {
+            this.state.user.mistakeBank.push(wordId);
+            this.save();
+        }
+    },
+
+    removeFromMistakeBank(wordId) {
+        this.state.user.mistakeBank = this.state.user.mistakeBank.filter(id => id !== wordId);
+        this.save();
+    },
+
+    generateDailyQuests() {
+        const today = new Date().toISOString().slice(0, 10);
+        if (this.state.user.dailyGoal.lastDate === today && this.state.user.quests && this.state.user.quests.length > 0) {
+            return; // Already generated
+        }
+
+        const questTypes = [
+            { id: 'q_review', text: '5 Kelime Tekrar Et', target: 5, reward: 50 },
+            { id: 'q_game', text: '3 Oyun Oyna', target: 3, reward: 100 },
+            { id: 'q_scramble', text: 'Kelime Avı Yap', target: 1, reward: 30 },
+            { id: 'q_mistake', text: 'Hatalarını Gözden Geçir', target: 5, reward: 50 },
+            { id: 'q_add', text: 'Yeni Kelime Ekle', target: 2, reward: 20 }
+        ];
+
+        // Pick 3 random quests
+        const shuffled = questTypes.sort(() => 0.5 - Math.random());
+        this.state.user.quests = shuffled.slice(0, 3).map(q => ({
+            ...q,
+            current: 0,
+            completed: false
+        }));
+        this.save();
+    },
+
+    updateQuestProgress(type, amount = 1) {
+        let updated = false;
+        this.state.user.quests.forEach(q => {
+            if (!q.completed && (q.id === type || (type === 'game' && q.id.startsWith('q_game')))) {
+                q.current += amount;
+                if (q.current >= q.target) {
+                    q.completed = true;
+                    this.updateUserPoints(q.reward);
+                    // Notify user (UI should handle this or dispatch event)
+                    // alert(`Görev Tamamlandı: ${q.text} +${q.reward} Puan`);
+                }
+                updated = true;
+            }
+        });
+        if (updated) this.save();
+    },
+
+    updateStreak() {
+        const today = new Date().toISOString().slice(0, 10);
+        const lastLogin = this.state.user.stats.lastLogin;
+
+        if (lastLogin !== today) {
+            const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+            if (lastLogin === yesterday) {
+                this.state.user.stats.streak++;
+            } else {
+                this.state.user.stats.streak = 1; // Reset if broken
+            }
+            this.state.user.stats.lastLogin = today;
+
+            if (!this.state.user.stats.streakCalendar) this.state.user.stats.streakCalendar = [];
+            if (!this.state.user.stats.streakCalendar.includes(today)) {
+                this.state.user.stats.streakCalendar.push(today);
+            }
+
+            this.generateDailyQuests(); // New day, new quests
+            this.save();
+        }
+    },
+
+    addResfebe(wordId, imageUrl) {
+        if (!this.state.user.resfebes) this.state.user.resfebes = {};
+        this.state.user.resfebes[wordId] = imageUrl;
+        this.save();
     },
 
     // --- PACKS LOGIC ---
@@ -1974,17 +2066,15 @@ const UI = {
 
     renderHome(container = document.getElementById('view-home')) {
         if (!container) return;
+
+        // Ensure data is fresh
+        Store.updateStreak();
+
         const user = Store.state.user;
         const words = Store.state.words;
 
         // Calculate Stats
         const today = new Date().toISOString().slice(0, 10);
-        if (user.dailyGoal.lastDate !== today) {
-            user.dailyGoal.current = 0; // Reset daily count
-            user.dailyGoal.lastDate = today;
-            Store.save();
-        }
-
         const progressPercent = Math.min((user.dailyGoal.current / user.dailyGoal.target) * 100, 100);
         const greeting = new Date().getHours() < 12 ? 'Günaydın' : (new Date().getHours() < 18 ? 'Tünaydın' : 'İyi Akşamlar');
 
@@ -1993,7 +2083,7 @@ const UI = {
             <div class="d-flex justify-content-between align-items-center mb-4 slide-in">
                 <div>
                     <h1 class="fw-bold mb-0">${greeting}, ${user.name} 👋</h1>
-                    <p class="text-muted small">Bugün öğrenmeye hazır mısın?</p>
+                    <p class="text-muted small">Bugün ${user.stats.streak} gün zincirindesin! 🔥</p>
                 </div>
                 <div class="d-flex align-items-center gap-2">
                     <button class="btn btn-sm btn-light border shadow-sm rounded-circle" style="width: 32px; height: 32px;" onclick="UI.changeFontSize(-1)">
@@ -2012,22 +2102,42 @@ const UI = {
             <!-- Dashboard Grid -->
             <div class="row g-3">
                 
-                <!-- Daily Goal Card -->
+                <!-- Daily Quests Widget -->
                 <div class="col-12">
-                     <div class="custom-card p-4 clickable text-center bg-danger bg-opacity-10 border border-danger border-opacity-25 mb-3" onclick="Chat.startChatMode()">
-                        <div class="d-flex align-items-center justify-content-center gap-3">
-                             <div class="bg-white p-3 rounded-circle shadow-sm">
-                                <i class="bi bi-chat-quote-fill text-danger fs-3"></i>
+                    <div class="card border-0 shadow-sm rounded-4 p-3 bg-white mb-2">
+                        <h6 class="fw-bold mb-2 text-primary"><i class="bi bi-stars me-2"></i>Günün Görevleri</h6>
+                        ${user.quests && user.quests.length > 0 ? user.quests.map(q => `
+                            <div class="d-flex align-items-center justify-content-between mb-2 last-no-mb">
+                                <div class="d-flex align-items-center gap-2">
+                                    <i class="bi bi-${q.completed ? 'check-circle-fill text-success' : 'circle text-muted'}"></i>
+                                    <small class="${q.completed ? 'text-decoration-line-through text-muted' : ''}">${q.text}</small>
+                                </div>
+                                <span class="badge ${q.completed ? 'bg-success' : 'bg-light text-dark'}">${q.current}/${q.target}</span>
                             </div>
-                            <div class="text-start">
-                                 <h4 class="fw-bold m-0 text-danger text-start">Dedikodu Kazanı</h4>
-                                 <small class="text-secondary fw-bold text-start d-block">YDS Uzmanlarını Dinle & Öğren!</small>
-                            </div>
-                            <i class="bi bi-chevron-right text-danger ms-auto"></i>
-                        </div>
+                        `).join('') : '<small class="text-muted">Tüm görevler tamamlandı!</small>'}
                     </div>
                 </div>
-                
+
+                <!-- Mistake Bank (Visible only if mistakes exist) -->
+                ${user.mistakeBank && user.mistakeBank.length > 0 ? `
+                <div class="col-12">
+                     <div class="custom-card p-3 clickable text-center bg-danger text-white rounded-4 shadow-sm mb-2" onclick="UI.startMistakeReview()">
+                        <div class="d-flex align-items-center justify-content-between">
+                             <div class="d-flex align-items-center gap-3">
+                                <div class="bg-white bg-opacity-25 p-2 rounded-circle">
+                                    <i class="bi bi-eraser-fill fs-4"></i>
+                                </div>
+                                <div class="text-start">
+                                     <h6 class="fw-bold m-0">Hata Defteri</h6>
+                                     <small class="opacity-75">${user.mistakeBank.length} Kelime Tekrar Bekliyor</small>
+                                </div>
+                            </div>
+                            <i class="bi bi-chevron-right"></i>
+                        </div>
+                    </div>
+                </div>` : ''}
+
+                <!-- Daily Goal Card -->
                 <div class="col-12">
                     <div class="card border-0 shadow-sm rounded-4 p-3 bg-gradient-primary text-white position-relative overflow-hidden mb-2 bounce-in">
                         <div class="d-flex justify-content-between align-items-center position-relative z-1">
@@ -2069,6 +2179,26 @@ const UI = {
                         </div>
                         <h6 class="fw-bold">Oyna</h6>
                         <small class="text-muted">Eğlenceli Modlar</small>
+                    </div>
+                </div>
+
+                <!-- Games List (Expanded) -->
+                 <div class="col-6">
+                    <div class="card border-0 shadow-sm rounded-4 p-3 h-100 text-center clickable hover-scale bg-white" onclick="UI.startDictationMode()">
+                        <div class="mb-2">
+                             <i class="bi bi-mic-fill fs-1 text-purple"></i>
+                        </div>
+                        <h6 class="fw-bold">Yaz Bakalım</h6>
+                        <small class="text-muted">Dikte Modu</small>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="card border-0 shadow-sm rounded-4 p-3 h-100 text-center clickable hover-scale bg-white" onclick="UI.startResfebeMode()">
+                        <div class="mb-2">
+                             <i class="bi bi-images fs-1 text-success"></i>
+                        </div>
+                        <h6 class="fw-bold">Resfebe</h6>
+                        <small class="text-muted">Görsel Bulmaca</small>
                     </div>
                 </div>
 
@@ -2547,6 +2677,79 @@ const UI = {
         this.renderTest(document.querySelector('.view-section.active'));
     },
 
+    // --- REVIEW MODES ---
+    startMistakeReview() {
+        const mistakeIds = Store.state.user.mistakeBank || [];
+        if (mistakeIds.length === 0) {
+            alert("Harika! Hata defterin boş.");
+            return;
+        }
+
+        // Filter words that are in the mistake bank
+        this.flashcardSession = Store.state.words.filter(w => mistakeIds.includes(w.id));
+        this.currentFlashcardIndex = 0;
+        this.isMistakeReview = true; // Flag to handle removal on success
+        this.switchView('learn');
+        this.renderFlashcards(document.querySelector('.view-section.active'));
+    },
+
+    flashcardSession: [],
+
+    // --- PACKS MARKET VIEW ---
+    renderPacksMarket(container) {
+        const packs = Store.getPacks();
+        const installed = Store.state.packs || [];
+
+        container.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <button class="btn btn-sm btn-icon" onclick="UI.switchView('home')"><i class="bi bi-arrow-left"></i></button>
+                <h5 class="fw-bold m-0">Kelime Marketi 🛍️</h5>
+                <span></span>
+            </div>
+
+            <div class="row g-3">
+                ${packs.map(pack => {
+            const isInstalled = installed.includes(pack.id);
+            return `
+                    <div class="col-12">
+                        <div class="card border-0 shadow-sm rounded-4 p-3 h-100">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="bg-primary bg-opacity-10 p-3 rounded-circle text-primary">
+                                    <i class="bi ${pack.icon || 'bi-box'} fs-3"></i>
+                                </div>
+                                <div class="flex-grow-1">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <h6 class="fw-bold mb-1">${pack.title}</h6>
+                                        <span class="badge bg-light text-dark border">${pack.level}</span>
+                                    </div>
+                                    <p class="text-muted small mb-2">${pack.description}</p>
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <small class="fw-bold text-primary">${pack.words.length} Kelime</small>
+                                        <button class="btn btn-sm rounded-pill px-3 ${isInstalled ? 'btn-secondary' : 'btn-primary'}" 
+                                            onclick="UI.importPack('${pack.id}', this)" ${isInstalled ? 'disabled' : ''}>
+                                            ${isInstalled ? '<i class="bi bi-check2"></i> İndirildi' : 'İndir'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `}).join('')}
+            </div>
+        `;
+    },
+
+    importPack(packId, btn) {
+        const addedCount = Store.importPack(packId);
+        if (addedCount !== false) {
+            btn.className = 'btn btn-sm rounded-pill px-3 btn-success';
+            btn.innerHTML = '<i class="bi bi-check2"></i> Hazır';
+            btn.disabled = true;
+            AudioMgr.play('success');
+            // Confetti effect or toast could go here
+        }
+    },
+
     // --- Helpers ---
     getEmptyStateHtml() {
         return `
@@ -2666,7 +2869,7 @@ const UI = {
                 `).join('') : '<div class="col-12 text-center text-muted small">Henüz başarım kilidi açılmadı.</div>'}
             </div>
 
-            <button class="btn btn-primary w-100 rounded-pill py-3 mb-4 shadow" onclick="UI.renderPacks(document.querySelector('.view-section.active'))">
+            <button class="btn btn-primary w-100 rounded-pill py-3 mb-4 shadow" onclick="UI.renderPacksMarket(document.querySelector('.view-section.active'))">
                 <i class="bi bi-bag-plus-fill me-2"></i> Yeni Paket Ekle
             </button>
 
@@ -2710,101 +2913,93 @@ const UI = {
         `;
     },
 
-    renderPacks(container) {
-        const packs = Store.getPacks();
-        const installed = Store.state.packs || [];
-
-        container.innerHTML = `
-             <div class="d-flex justify-content-between align-items-center mb-4">
-                <button class="btn btn-sm btn-icon" onclick="UI.switchView('profile')"><i class="bi bi-chevron-left"></i></button>
-                <h5 class="fw-bold m-0 text-primary">Kelime Market</h5>
-                <div style="width: 32px;"></div>
-            </div>
-            
-            <div class="d-grid gap-3">
-                ${packs.map(pack => `
-                    <div class="card border-0 shadow-sm rounded-4 p-3">
-                        <div class="d-flex align-items-center gap-3">
-                            <div class="p-3 rounded-circle bg-light text-primary">
-                                <i class="bi ${pack.icon || 'bi-box-seam'} fs-4"></i>
-                            </div>
-                            <div class="flex-grow-1">
-                                <h6 class="fw-bold mb-1">${pack.title}</h6>
-                                <p class="text-muted small m-0">${pack.description}</p>
-                                <span class="badge bg-secondary bg-opacity-10 text-secondary mt-1">${pack.level}</span>
-                            </div>
-                            <button class="btn btn-sm ${installed.includes(pack.id) ? 'btn-success disabled' : 'btn-primary'}" 
-                                onclick="UI.handleImportPack('${pack.id}', this)">
-                                ${installed.includes(pack.id) ? '<i class="bi bi-check-lg"></i>' : 'İndir'}
-                            </button>
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-        `;
-    },
-
     handleAvatarUpload(input) {
         if (input.files && input.files[0]) {
             const reader = new FileReader();
             reader.onload = (e) => {
-                const base64 = e.target.result;
-                Store.updateProfile(null, base64);
-                // Update preview immediately
-                const img = document.getElementById('profile-avatar-preview');
-                if (img) img.src = base64;
+                Store.updateProfile(null, e.target.result);
+                this.renderProfile(document.querySelector('.view-section.active'));
             };
             reader.readAsDataURL(input.files[0]);
         }
     },
+    renderPacksMarket(container) {
+        const packs = Store.getPacks();
+        const installed = Store.state.packs || [];
 
-    handleImportPack(packId, btn) {
-        if (btn.classList.contains('disabled')) return;
+        container.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <button class="btn btn-sm btn-icon" onclick="UI.switchView('profile')"><i class="bi bi-chevron-left"></i></button>
+                <h5 class="fw-bold m-0 text-primary">Kelime Marketi 🛍️</h5>
+                <div style="width: 32px;"></div>
+            </div>
 
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-        setTimeout(() => {
-            const addedCount = Store.importPack(packId);
-            btn.className = 'btn btn-sm btn-success disabled';
-            btn.innerHTML = '<i class="bi bi-check-lg"></i>';
-            alert(`${addedCount} yeni kelime eklendi!`);
-        }, 500);
+            <div class="row g-3">
+                ${packs.map(pack => {
+            const isInstalled = installed.includes(pack.id);
+            return `
+                    <div class="col-12">
+                        <div class="card border-0 shadow-sm rounded-4 p-3 h-100">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="bg-primary bg-opacity-10 p-3 rounded-circle text-primary">
+                                    <i class="bi ${pack.icon || 'bi-box'} fs-3"></i>
+                                </div>
+                                <div class="flex-grow-1">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <h6 class="fw-bold mb-1">${pack.title}</h6>
+                                        <span class="badge bg-light text-dark border">${pack.level}</span>
+                                    </div>
+                                    <p class="text-muted small mb-2">${pack.description}</p>
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <small class="fw-bold text-primary">${pack.words.length} Kelime</small>
+                                        <button class="btn btn-sm rounded-pill px-3 ${isInstalled ? 'btn-secondary' : 'btn-primary'}" 
+                                            onclick="UI.handleImportPack('${pack.id}', this)" ${isInstalled ? 'disabled' : ''}>
+                                            ${isInstalled ? '<i class="bi bi-check2"></i> İndirildi' : 'İndir'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `}).join('')}
+            </div>
+        `;
+    },
+    if(btn.classList.contains('disabled')) return;
+
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    setTimeout(() => {
+    const addedCount = Store.importPack(packId);
+    btn.className = 'btn btn-sm btn-success disabled';
+    btn.innerHTML = '<i class="bi bi-check-lg"></i>';
+    alert(`${addedCount} yeni kelime eklendi!`);
+}, 500);
     },
 
-    // --- Dynamic Reading Generator ---
-    // --- Dynamic Reading Generator ---
-    // --- Dynamic Reading Generator ---
-    generateReadingContent(chunk, index) {
-        const title = `Bölüm ${index + 1}: ${chunk[0].word} - ${chunk[chunk.length - 1].word}`;
+// --- Dynamic Reading Generator ---
+// --- Dynamic Reading Generator ---
+// --- Dynamic Reading Generator ---
+generateReadingContent(chunk, index) {
+    const title = `Bölüm ${index + 1}: ${chunk[0].word} - ${chunk[chunk.length - 1].word}`;
 
-        let enText = "";
-        let trText = "";
+    let enText = "";
+    let trText = "";
 
-        // Template Libraries for sentence generation
-        const templates = [
-            { en: (w) => `The concept of ${w} is often discussed.`, tr: (m) => `${m} kavramı sıklıkla tartışılır.` },
-            { en: (w) => `We need to understand ${w} deeply.`, tr: (m) => `${m} konusunu derinlemesine anlamalıyız.` },
-            { en: (w) => `Many researchers focus on ${w}.`, tr: (m) => `Pek çok araştırmacı ${m} üzerine odaklanmaktadır.` },
-            { en: (w) => `This example demonstrates ${w} clearly.`, tr: (m) => `Bu örnek ${m} kavramını açıkça göstermektedir.` },
-            { en: (w) => `Can we define ${w} in this context?`, tr: (m) => `Bu bağlamda ${m} kavramını tanımlayabilir miyiz?` },
-            { en: (w) => `The impact of ${w} is significant.`, tr: (m) => `${m} etkisinin önemi büyüktür.` },
-            { en: (w) => `Usually, ${w} plays a vital role.`, tr: (m) => `Genellikle ${m} hayati bir rol oynar.` },
-            { en: (w) => `It is hard to ignore ${w}.`, tr: (m) => `${m} gerçeğini görmezden gelmek zordur.` },
-            { en: (w) => `Experts say that ${w} is changing.`, tr: (m) => `Uzmanlar ${m} durumunun değiştiğini söylüyor.` },
-            { en: (w) => `Without ${w}, the system fails.`, tr: (m) => `${m} olmadan sistem başarısız olur.` },
-            { en: (w) => `Let's consider the aspects of ${w}.`, tr: (m) => `Hadi ${m} yönlerini ele alalım.` },
-            { en: (w) => `The true meaning of ${w} remains debated.`, tr: (m) => `${m} kelimesinin gerçek anlamı tartışılmaya devam ediyor.` },
-            { en: (w) => `Historically, ${w} was quite common.`, tr: (m) => `Tarihsel olarak ${m} oldukça yaygındı.` },
-            { en: (w) => `We witnessed ${w} in recent studies.`, tr: (m) => `Son çalışmalarda ${m} olgusuna tanık olduk.` },
-            { en: (w) => `A lack of ${w} can be problematic.`, tr: (m) => `${m} eksikliği sorunlu olabilir.` }
-        ];
-
-        chunk.forEach(w => {
-            // Pick a random template
-            const t = templates[Math.floor(Math.random() * templates.length)];
-
-            enText += t.en(w.word) + " ";
-            trText += t.tr(w.meaning) + " ";
-        });
+    // Template Libraries for sentence generation
+    const templates = [
+        { en: (w) => `The concept of ${w} is often discussed.`, tr: (m) => `${m} kavramı sıklıkla tartışılır.` },
+        { en: (w) => `We need to understand ${w} deeply.`, tr: (m) => `${m} konusunu derinlemesine anlamalıyız.` },
+        { en: (w) => `Many researchers focus on ${w}.`, tr: (m) => `Pek çok araştırmacı ${m} üzerine odaklanmaktadır.` },
+        { en: (w) => `This example demonstrates ${w} clearly.`, tr: (m) => `Bu örnek ${m} kavramını açıkça göstermektedir.` },
+        { en: (w) => `Can we define ${w} in this context?`, tr: (m) => `Bu bağlamda ${m} kavramını tanımlayabilir miyiz?` },
+        { en: (w) => `The impact of ${w} is significant.`, tr: (m) => `${m} etkisinin önemi büyüktür.` },
+        { en: (w) => `Usually, ${w} plays a vital role.`, tr: (m) => `Genellikle ${m} hayati bir rol oynar.` },
+        { en: (w) => `It is hard to ignore ${w}.`, tr: (m) => `${m} gerçeğini görmezden gelmek zordur.` },
+        { en: (w) => `Experts say that ${w} is changing.`, tr: (m) => `Uzmanlar ${m} durumunun değiştiğini söylüyor.` },
+        { en: (w) => `Without ${w}, the system fails.`, tr: (m) => `${m} olmadan sistem başarısız olur.` },
+        { en: (w) => `Let's consider the aspects of ${w}.`, tr: (m) => `Hadi ${m} yönlerini ele alalım.` },
+        { en: (w) => `The true meaning of ${w} remains debated.`, tr: (m) => `${m} kelimesinin gerçek anlamı tartışılmaya devam ediyor.` },
+        { en: (w) => `Historically, ${w} was quite common.`, tr: (m) => `Tarihsel olarak ${m} oldukça yaygındı.` },
 
         // Add a clear Vocabulary List at the bottom as requested
         trText += `
@@ -2816,34 +3011,34 @@ const UI = {
             </div>
         `;
 
-        // Mock "Related Words" relative to the chunk topic
-        const related = chunk.slice(0, 5).map(w => ({ word: w.meaning, meaning: w.word }));
+    // Mock "Related Words" relative to the chunk topic
+    const related = chunk.slice(0, 5).map(w => ({ word: w.meaning, meaning: w.word }));
 
-        return {
-            id: index,
-            title: title,
-            level: 'Dynamic',
-            en: enText.trim(),
-            tr: trText.trim(), // Now a full paragraph
-            words: chunk,
-            related: related
-        };
-    },
+    return {
+        id: index,
+        title: title,
+        level: 'Dynamic',
+        en: enText.trim(),
+        tr: trText.trim(), // Now a full paragraph
+        words: chunk,
+        related: related
+    };
+},
 
-    renderParagraphMode(container) {
-        const words = Store.state.words;
-        const chunkSize = 20;
-        const chunks = [];
-        for (let i = 0; i < words.length; i += chunkSize) {
-            chunks.push(words.slice(i, i + chunkSize));
-        }
+renderParagraphMode(container) {
+    const words = Store.state.words;
+    const chunkSize = 20;
+    const chunks = [];
+    for (let i = 0; i < words.length; i += chunkSize) {
+        chunks.push(words.slice(i, i + chunkSize));
+    }
 
-        if (chunks.length === 0) {
-            container.innerHTML = this.getEmptyStateHtml();
-            return;
-        }
+    if (chunks.length === 0) {
+        container.innerHTML = this.getEmptyStateHtml();
+        return;
+    }
 
-        container.innerHTML = `
+    container.innerHTML = `
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <button class="btn btn-sm btn-icon" onclick="UI.switchView('learn')"><i class="bi bi-chevron-left"></i></button>
                 <h5 class="fw-bold m-0 text-dark">Okuma Kütüphanesi</h5>
@@ -2855,8 +3050,8 @@ const UI = {
             
             <div class="row g-3">
                 ${chunks.map((chunk, index) => {
-            const preview = chunk.slice(0, 3).map(w => w.word).join(', ') + '...';
-            return `
+        const preview = chunk.slice(0, 3).map(w => w.word).join(', ') + '...';
+        return `
                     <div class="col-12">
                         <div class="card border-0 shadow-sm rounded-4 p-4 clickable hover-scale" onclick="UI.renderParagraphDetail(document.querySelector('.view-section.active'), ${index})">
                             <div class="d-flex justify-content-between align-items-center">
@@ -2873,31 +3068,31 @@ const UI = {
                 `}).join('')}
             </div>
         `;
-    },
+},
 
-    // --- Word Network Logic ---
-    openNetworkModal(wordText) {
-        const wordObj = Store.state.words.find(w => w.word === wordText);
-        if (!wordObj) return;
+// --- Word Network Logic ---
+openNetworkModal(wordText) {
+    const wordObj = Store.state.words.find(w => w.word === wordText);
+    if (!wordObj) return;
 
-        // Mock Related Words: Get 5-8 random words from the same tag or random
-        let related = Store.state.words
-            .filter(w => w.word !== wordText) // Exclude self
-            .sort(() => Math.random() - 0.5) // Shuffle
-            .slice(0, 8); // Take 8
+    // Mock Related Words: Get 5-8 random words from the same tag or random
+    let related = Store.state.words
+        .filter(w => w.word !== wordText) // Exclude self
+        .sort(() => Math.random() - 0.5) // Shuffle
+        .slice(0, 8); // Take 8
 
-        const container = document.getElementById('network-cloud-container');
-        const titleEl = document.getElementById('networkModalTitle');
-        // UPDATE: Show meaning in title as requested
-        if (titleEl) titleEl.innerText = `${wordObj.word} : ${wordObj.meaning}`;
+    const container = document.getElementById('network-cloud-container');
+    const titleEl = document.getElementById('networkModalTitle');
+    // UPDATE: Show meaning in title as requested
+    if (titleEl) titleEl.innerText = `${wordObj.word} : ${wordObj.meaning}`;
 
-        if (container) {
-            container.innerHTML = related.map(w => {
-                const size = Math.floor(Math.random() * 3) + 1; // 1 to 3
-                const colors = ['primary', 'success', 'info', 'warning', 'danger'];
-                const color = colors[Math.floor(Math.random() * colors.length)];
+    if (container) {
+        container.innerHTML = related.map(w => {
+            const size = Math.floor(Math.random() * 3) + 1; // 1 to 3
+            const colors = ['primary', 'success', 'info', 'warning', 'danger'];
+            const color = colors[Math.floor(Math.random() * colors.length)];
 
-                return `
+            return `
                     <div class="position-relative d-inline-block m-2 text-center p-3 rounded-circle border border-${color} bg-${color} bg-opacity-10 clickable hover-scale"
                          style="width: ${80 + size * 10}px; height: ${80 + size * 10}px; display: flex; align-items: center; justify-content: center; flex-direction: column;"
                          onclick="this.querySelector('.translation').classList.toggle('d-none')">
@@ -2905,46 +3100,46 @@ const UI = {
                         <span class="translation text-muted small mt-1 fw-bold">${w.meaning}</span>
                     </div>
                 `;
-            }).join('');
-        }
+        }).join('');
+    }
 
-        // Show Modal
-        const modalEl = document.getElementById('wordNetworkModal');
-        if (modalEl) {
-            const modal = new bootstrap.Modal(modalEl);
-            modal.show();
-        } else {
-            console.error('Word Network Modal not found!');
-        }
-    },
+    // Show Modal
+    const modalEl = document.getElementById('wordNetworkModal');
+    if (modalEl) {
+        const modal = new bootstrap.Modal(modalEl);
+        modal.show();
+    } else {
+        console.error('Word Network Modal not found!');
+    }
+},
 
-    renderParagraphDetail(container, index) {
-        const words = Store.state.words;
-        const chunkSize = 20;
-        const start = index * chunkSize;
-        const chunk = words.slice(start, start + chunkSize);
+renderParagraphDetail(container, index) {
+    const words = Store.state.words;
+    const chunkSize = 20;
+    const start = index * chunkSize;
+    const chunk = words.slice(start, start + chunkSize);
 
-        // Generate content on the fly
-        const content = this.generateReadingContent(chunk, index);
+    // Generate content on the fly
+    const content = this.generateReadingContent(chunk, index);
 
-        // Highlight words logic - Make them CLICKABLE for the Network Cloud
-        let formattedText = content.en;
-        content.words.forEach(w => {
-            const regex = new RegExp(`\\b${w.word}\\b`, 'gi');
-            formattedText = formattedText.replace(regex, match =>
-                `<strong class="text-primary border-bottom border-primary clickable" onclick="UI.openNetworkModal('${w.word}')">${match}</strong>`
-            );
-        });
+    // Highlight words logic - Make them CLICKABLE for the Network Cloud
+    let formattedText = content.en;
+    content.words.forEach(w => {
+        const regex = new RegExp(`\\b${w.word}\\b`, 'gi');
+        formattedText = formattedText.replace(regex, match =>
+            `<strong class="text-primary border-bottom border-primary clickable" onclick="UI.openNetworkModal('${w.word}')">${match}</strong>`
+        );
+    });
 
-        // Add helper to window if not exists
-        if (!window.toggleTranslation) {
-            window.toggleTranslation = () => {
-                const el = document.getElementById('tr-text');
-                if (el) el.classList.toggle('d-none');
-            };
-        }
+    // Add helper to window if not exists
+    if (!window.toggleTranslation) {
+        window.toggleTranslation = () => {
+            const el = document.getElementById('tr-text');
+            if (el) el.classList.toggle('d-none');
+        };
+    }
 
-        container.innerHTML = `
+    container.innerHTML = `
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <button class="btn btn-sm btn-icon" onclick="UI.renderParagraphMode(document.querySelector('.view-section.active'))"><i class="bi bi-chevron-left"></i></button>
                 <h5 class="fw-bold m-0 text-dark w-100 text-center">${content.title}</h5>
@@ -2983,77 +3178,77 @@ const UI = {
                  `).join('')}
             </div>
         `;
-    },
+},
 
-    renderClozeMode(container, index) {
-        const words = Store.state.words;
-        const chunkSize = 20;
-        const start = index * chunkSize;
-        const chunk = words.slice(start, start + chunkSize);
-        const content = this.generateReadingContent(chunk, index);
+renderClozeMode(container, index) {
+    const words = Store.state.words;
+    const chunkSize = 20;
+    const start = index * chunkSize;
+    const chunk = words.slice(start, start + chunkSize);
+    const content = this.generateReadingContent(chunk, index);
 
-        let clozeText = content.en;
-        let blankId = 0;
-        content.words.forEach(w => {
-            const regex = new RegExp(`\\b${w.word}\\b`, 'gi');
-            // Create a specific clickable blank
-            clozeText = clozeText.replace(regex, `<span class="cloze-blank d-inline-block border-bottom border-2 border-primary text-primary fw-bold px-3 mx-1 clickable bg-primary bg-opacity-10" id="blank-${blankId}" onclick="UI.handleBlankClick(${blankId})" data-answer="${w.word.toLowerCase()}">____</span>`);
-            blankId++;
-        });
+    let clozeText = content.en;
+    let blankId = 0;
+    content.words.forEach(w => {
+        const regex = new RegExp(`\\b${w.word}\\b`, 'gi');
+        // Create a specific clickable blank
+        clozeText = clozeText.replace(regex, `<span class="cloze-blank d-inline-block border-bottom border-2 border-primary text-primary fw-bold px-3 mx-1 clickable bg-primary bg-opacity-10" id="blank-${blankId}" onclick="UI.handleBlankClick(${blankId})" data-answer="${w.word.toLowerCase()}">____</span>`);
+        blankId++;
+    });
 
-        // Setup state for the game
-        this.clozeState = {
-            selectedBlankId: null,
-            score: 0,
-            total: blankId
-        };
+    // Setup state for the game
+    this.clozeState = {
+        selectedBlankId: null,
+        score: 0,
+        total: blankId
+    };
 
-        // Define helpers
-        UI.handleBlankClick = (id) => {
-            // Reset previous
-            document.querySelectorAll('.cloze-blank').forEach(el => el.classList.remove('bg-warning'));
+    // Define helpers
+    UI.handleBlankClick = (id) => {
+        // Reset previous
+        document.querySelectorAll('.cloze-blank').forEach(el => el.classList.remove('bg-warning'));
 
-            UI.clozeState.selectedBlankId = id;
-            const el = document.getElementById(`blank-${id}`);
-            el.classList.add('bg-warning');
+        UI.clozeState.selectedBlankId = id;
+        const el = document.getElementById(`blank-${id}`);
+        el.classList.add('bg-warning');
 
-            // Provide visual feedback that blank is selected
-            AudioMgr.play('click');
-        };
+        // Provide visual feedback that blank is selected
+        AudioMgr.play('click');
+    };
 
-        UI.handleWordBankClick = (word) => {
-            if (UI.clozeState.selectedBlankId === null) {
-                alert('Lütfen önce metin içindeki boşluklardan birini seçin.');
-                return;
+    UI.handleWordBankClick = (word) => {
+        if (UI.clozeState.selectedBlankId === null) {
+            alert('Lütfen önce metin içindeki boşluklardan birini seçin.');
+            return;
+        }
+
+        const blankEl = document.getElementById(`blank-${UI.clozeState.selectedBlankId}`);
+        const correctWord = blankEl.dataset.answer;
+
+        if (word.toLowerCase() === correctWord) {
+            blankEl.textContent = word;
+            blankEl.classList.remove('bg-warning', 'bg-primary', 'text-primary');
+            blankEl.classList.add('bg-success', 'text-white', 'rounded');
+            blankEl.onclick = null; // Disable clicking
+            UI.clozeState.score++;
+            UI.clozeState.selectedBlankId = null;
+            AudioMgr.play('win');
+
+            // Remove word from bank visually
+            const bankBtn = document.getElementById(`bank-btn-${word}`);
+            if (bankBtn) bankBtn.classList.add('opacity-25', 'disabled');
+
+            if (UI.clozeState.score === UI.clozeState.total) {
+                setTimeout(() => alert('Tebrikler! Bölümü tamamladınız.'), 500);
             }
+        } else {
+            blankEl.classList.add('shake-anim');
+            setTimeout(() => blankEl.classList.remove('shake-anim'), 500);
+            AudioMgr.play('incorrect');
+        }
+    };
 
-            const blankEl = document.getElementById(`blank-${UI.clozeState.selectedBlankId}`);
-            const correctWord = blankEl.dataset.answer;
-
-            if (word.toLowerCase() === correctWord) {
-                blankEl.textContent = word;
-                blankEl.classList.remove('bg-warning', 'bg-primary', 'text-primary');
-                blankEl.classList.add('bg-success', 'text-white', 'rounded');
-                blankEl.onclick = null; // Disable clicking
-                UI.clozeState.score++;
-                UI.clozeState.selectedBlankId = null;
-                AudioMgr.play('win');
-
-                // Remove word from bank visually
-                const bankBtn = document.getElementById(`bank-btn-${word}`);
-                if (bankBtn) bankBtn.classList.add('opacity-25', 'disabled');
-
-                if (UI.clozeState.score === UI.clozeState.total) {
-                    setTimeout(() => alert('Tebrikler! Bölümü tamamladınız.'), 500);
-                }
-            } else {
-                blankEl.classList.add('shake-anim');
-                setTimeout(() => blankEl.classList.remove('shake-anim'), 500);
-                AudioMgr.play('incorrect');
-            }
-        };
-
-        container.innerHTML = `
+    container.innerHTML = `
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <button class="btn btn-sm btn-icon" onclick="UI.renderParagraphDetail(document.querySelector('.view-section.active'), ${index})"><i class="bi bi-chevron-left"></i></button>
                 <h5 class="fw-bold m-0 text-dark">Boşluk Doldurma</h5>
@@ -3079,15 +3274,15 @@ const UI = {
                 `).join('')}
             </div>
         `;
-    },
+},
 
-    changeFontSize(delta) {
-        const root = document.documentElement;
-        const currentSize = parseFloat(getComputedStyle(root).getPropertyValue('--font-scale') || 1);
-        const newSize = Math.max(0.8, Math.min(1.4, currentSize + (delta * 0.1)));
+changeFontSize(delta) {
+    const root = document.documentElement;
+    const currentSize = parseFloat(getComputedStyle(root).getPropertyValue('--font-scale') || 1);
+    const newSize = Math.max(0.8, Math.min(1.4, currentSize + (delta * 0.1)));
 
-        root.style.setProperty('--font-scale', newSize);
-    },
+    root.style.setProperty('--font-scale', newSize);
+},
 };
 
 // Expose UI to Global Scope
