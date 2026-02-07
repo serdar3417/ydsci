@@ -524,6 +524,82 @@ const Chat = {
         modal.show();
     },
 
+    // --- SCENARIO MODE ---
+    startScenarioMode() {
+        UI.switchView('chat');
+        this.renderChatInterface(document.getElementById('view-chat'));
+        this.activeChat = {
+            users: [this.characters[0]], // One teacher
+            topic: null,
+            history: [],
+            isScenario: true,
+            step: 0
+        };
+        this.addSystemMessage("Senaryo Modu: Mülakat 🎭");
+
+        setTimeout(() => {
+            const firstMsg = "Merhaba! YDS sınavına hazırlık nasıl gidiyor? En çok zorlandığın kelime türü nedir?";
+            this.addMessage(this.characters[0], firstMsg);
+            this.showUserOptions([
+                { text: "Akademik fiillerde zorlanıyorum.", score: 10 },
+                { text: "Bağlaçlar kafamı karıştırıyor.", score: 10 },
+                { text: "Kelime haznem genel olarak zayıf.", score: 5 }
+            ]);
+        }, 1000);
+    },
+
+    showUserOptions(options) {
+        const historyEl = document.getElementById('chat-history');
+        const optDiv = document.createElement('div');
+        optDiv.className = "d-grid gap-2 my-3 px-4";
+        optDiv.innerHTML = options.map(opt => `
+            <button class="btn btn-outline-primary rounded-pill text-start" onclick="Chat.handleUserReply('${opt.text}', ${opt.score})">
+                <i class="bi bi-chat-left-dots me-2"></i> ${opt.text}
+            </button>
+        `).join('');
+        historyEl.appendChild(optDiv);
+        this.scrollToBottom();
+    },
+
+    handleUserReply(text, score) {
+        // Remove options
+        const historyEl = document.getElementById('chat-history');
+        const btnGroup = historyEl.lastElementChild;
+        if (btnGroup) btnGroup.remove();
+
+        // Add user message
+        const userHtml = `
+            <div class="d-flex align-self-end mb-3 justify-content-end" style="max-width: 85%;">
+                <div class="p-3 rounded-4 bg-primary text-white shadow-sm">
+                    ${text}
+                </div>
+            </div>
+        `;
+        const temp = document.createElement('div');
+        temp.innerHTML = userHtml;
+        historyEl.appendChild(temp.firstElementChild);
+
+        Store.updateUserPoints(score || 5);
+
+        // Reply logic (Mock)
+        setTimeout(() => {
+            const replies = [
+                "Anlıyorum. O zaman 'Advocate' gibi kelimelere odaklanalım.",
+                "Bağlaçlar kilit noktadır. 'However' ve 'Therefore' arasındaki farkı bilmek gerekir.",
+                "Bol bol okuma yaparak bunu aşabilirsin."
+            ];
+            const reply = replies[Math.floor(Math.random() * replies.length)];
+            this.addMessage(this.characters[0], reply);
+
+            // Continue loop or end
+            setTimeout(() => {
+                this.addSystemMessage("Senaryo Tamamlandı! +10 Puan");
+                Store.updateUserPoints(10);
+            }, 2000);
+
+        }, 1000);
+    },
+
     selectTopic(id) {
         const word = Store.state.words.find(w => w.id === id);
         if (word) {

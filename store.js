@@ -86,10 +86,15 @@ export const Store = {
         }
     },
 
-    toggleTheme() {
-        this.state.user.theme = this.state.user.theme === 'light' ? 'dark' : 'light';
+    setTheme(themeName) {
+        this.state.user.theme = themeName;
         this.save();
         this.applyTheme();
+    },
+
+    toggleTheme() {
+        // Cycle behavior or simple toggle
+        this.setTheme(this.state.user.theme === 'light' ? 'night' : 'light');
     },
 
     applyTheme() {

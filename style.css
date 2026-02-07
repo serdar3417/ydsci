@@ -99,6 +99,20 @@ html {
     color: var(--text-color);
 }
 
+/* Theme Previews for UI - Globally Available */
+:root {
+    --theme-light-bg: #f8f9fa;
+    --theme-night-bg: #1f2937;
+    --theme-ocean-bg: #0ea5e9;
+    --theme-sunset-bg: #f43f5e;
+    --theme-forest-bg: #22c55e;
+    --theme-coffee-bg: #78350f;
+    --theme-rose-bg: #e11d48;
+    --theme-cyber-bg: #8b5cf6;
+    --theme-luxury-bg: #fbbf24;
+    --theme-terminal-bg: #000000;
+}
+
 body {
     font-family: 'Outfit', sans-serif;
     background-color: var(--bg-color);

@@ -13,39 +13,125 @@
 const Store = {
     state: {
         words: [],
+        packs: [], // Installed packs
         user: {
             name: 'Öğrenci',
-            avatar: null, // Base64 string
+            avatar: null,
             points: 0,
+            rank: 'Çaylak', // Gamification
+            achievements: [], // Gamification
             theme: 'night',
             completedTasks: [],
             settings: { mute: false },
             stats: { totalLearned: 0, streak: 0, lastLogin: null },
             dailyGoal: { target: 20, current: 0, lastDate: null }
         },
-        league: [] // Will hold fake users
+        league: []
+    },
+
+    // --- PACKS LOGIC ---
+    getPacks() {
+        return typeof PacksData !== 'undefined' ? PacksData : [];
+    },
+
+    importPack(packId) {
+        const pack = this.getPacks().find(p => p.id === packId);
+        if (!pack) return false;
+
+        let added = 0;
+        pack.words.forEach(pw => {
+            if (!this.state.words.find(w => w.word.toLowerCase() === pw.word.toLowerCase())) {
+                this.addWord({ ...pw, srs: { interval: 0, nextReview: Date.now(), difficulty: 'new' } });
+                added++;
+            }
+        });
+
+        if (!this.state.packs.includes(packId)) {
+            this.state.packs.push(packId);
+        }
+        this.save();
+        return added;
+    },
+
+    // --- SRS LOGIC ---
+    updateSRS(wordId, quality) { // quality: 0 (hard) - 5 (easy)
+        const word = this.state.words.find(w => w.id === wordId);
+        if (!word) return;
+
+        if (!word.srs) word.srs = { interval: 0, nextReview: Date.now(), difficulty: 'new' };
+
+        // Simple SM-2 ish algo
+        if (quality >= 3) {
+            if (word.srs.interval === 0) word.srs.interval = 1;
+            else if (word.srs.interval === 1) word.srs.interval = 3;
+            else word.srs.interval = Math.round(word.srs.interval * 2.5);
+
+            // Mark as learned if interval > 21 days
+            if (word.srs.interval > 21 && !word.learned) {
+                word.learned = true;
+                this.state.user.stats.totalLearned++;
+            }
+        } else {
+            word.srs.interval = 0; // Reset if forgotten
+        }
+
+        const nextDate = new Date();
+        nextDate.setDate(nextDate.getDate() + word.srs.interval);
+        word.srs.nextReview = nextDate.getTime();
+
+        this.save();
+    },
+
+    // --- GAMIFICATION LOGIC ---
+    checkAchievements() {
+        const user = this.state.user;
+        const newBadges = [];
+
+        const rules = [
+            { id: 'first_blood', title: 'İlk Adım', desc: 'İlk kelimeni ekledin', check: () => this.state.words.length > 0 },
+            { id: 'scholar', title: 'Kelime Avcısı', desc: '100 Kelimeye ulaştın', check: () => this.state.words.length >= 100 },
+            { id: 'social', title: 'Dedikoducu', desc: 'Sohbet modunu kullandın', check: () => true } // Triggered manually
+        ];
+
+        rules.forEach(rule => {
+            if (!user.achievements.find(a => a.id === rule.id) && rule.check()) {
+                user.achievements.push({ id: rule.id, title: rule.title, date: Date.now() });
+                newBadges.push(rule);
+            }
+        });
+
+        // Update Rank
+        const oldRank = user.rank;
+        if (user.points > 5000) user.rank = 'Profesör';
+        else if (user.points > 2500) user.rank = 'Doçent';
+        else if (user.points > 1000) user.rank = 'Asistan';
+        else if (user.points > 500) user.rank = 'Öğrenci';
+
+        if (user.rank !== oldRank) {
+            // Rank up event could be dispatched here
+            // document.dispatchEvent(new CustomEvent('rank-up', { detail: user.rank }));
+        }
+
+        this.save();
+        return newBadges;
     },
 
     init() {
         const savedData = localStorage.getItem('yds_data');
         if (savedData) {
             this.state = JSON.parse(savedData);
-            // Migration for old data
-            if (!this.state.user) this.state.user = {
-                name: 'Öğrenci',
-                points: 0,
-                theme: 'night',
-                settings: { mute: false },
-                stats: { totalLearned: 0, streak: 0, lastLogin: null },
-                dailyGoal: { target: 20, current: 0, lastDate: null }
-            };
-            if (!this.state.user.settings) this.state.user.settings = { mute: false };
-            if (!this.state.user.stats) this.state.user.stats = { totalLearned: 0, streak: 0, lastLogin: null };
-            if (!this.state.user.dailyGoal) this.state.user.dailyGoal = { target: 20, current: 0, lastDate: null };
-            if (!this.state.league) this.state.league = [];
+            // Migration
+            if (!this.state.user.rank) this.state.user.rank = 'Çaylak';
+            if (!this.state.user.achievements) this.state.user.achievements = [];
+            if (!this.state.packs) this.state.packs = [];
+            // Ensure words have SRS structure
+            this.state.words.forEach(w => {
+                if (!w.srs) w.srs = { interval: 0, nextReview: Date.now(), difficulty: 'new' };
+            });
         } else {
             this.seedData();
         }
+
 
         if (this.state.league.length === 0) {
             this.seedLeague();
@@ -115,6 +201,13 @@ const Store = {
         if (avatar) this.state.user.avatar = avatar;
         this.save();
     },
+
+    setTheme(themeName) {
+        this.state.user.theme = themeName;
+        this.save();
+        this.applyTheme();
+    },
+
 
     seedData() {
         this.state.words = [
@@ -2305,15 +2398,38 @@ const UI = {
                 </div>
             </div>
 
-            <div class="flashcard-controls">
-                <button class="btn-danger text-white" onclick="UI.handleFlashcardResult('${currentWord.id}', false)">
-                    <i class="bi bi-x-lg fs-4"></i>
-                </button>
-                <button class="btn-success text-white" onclick="UI.handleFlashcardResult('${currentWord.id}', true)">
-                    <i class="bi bi-check-lg fs-4"></i>
-                </button>
+            <div class="flashcard-controls row g-2">
+                <div class="col-3">
+                    <button class="btn btn-danger w-100 py-3" onclick="UI.handleSRSResult('${currentWord.id}', 1)">
+                        <i class="bi bi-emoji-dizzy d-block fs-4"></i>
+                        <small>Unuttum</small>
+                    </button>
+                </div>
+                <div class="col-3">
+                    <button class="btn btn-warning w-100 py-3 text-dark" onclick="UI.handleSRSResult('${currentWord.id}', 2)">
+                        <i class="bi bi-emoji-neutral d-block fs-4"></i>
+                        <small>Zor</small>
+                    </button>
+                </div>
+                <div class="col-3">
+                    <button class="btn btn-success w-100 py-3" onclick="UI.handleSRSResult('${currentWord.id}', 3)">
+                         <i class="bi bi-emoji-smile d-block fs-4"></i>
+                        <small>İyi</small>
+                    </button>
+                </div>
+                <div class="col-3">
+                    <button class="btn btn-primary w-100 py-3" onclick="UI.handleSRSResult('${currentWord.id}', 5)">
+                         <i class="bi bi-emoji-sunglasses d-block fs-4"></i>
+                        <small>Kolay</small>
+                    </button>
+                </div>
             </div>
         `;
+    },
+
+    handleSRSResult(id, quality) {
+        Store.updateSRS(id, quality);
+        this.handleFlashcardResult(id, quality >= 3);
     },
 
     handleFlashcardResult(id, isCorrect) {
@@ -2480,40 +2596,178 @@ const UI = {
         if (el) el.textContent = Store.state.user.points;
     },
 
-    // --- New Features (Phase 4/5) ---
-    renderWordCloud(container) {
-        const words = Store.state.words;
-        if (words.length === 0) {
-            container.innerHTML = this.getEmptyStateHtml();
-            return;
-        }
+    // --- GAMIFICATION & PACKS UI ---
+    renderProfile(container) {
+        const user = Store.state.user;
+        const badges = user.achievements || [];
 
         container.innerHTML = `
             <div class="d-flex justify-content-between align-items-center mb-4">
-                <button class="btn btn-sm btn-icon" onclick="UI.switchView('games')"><i class="bi bi-chevron-left"></i></button>
-                <h5 class="fw-bold m-0 text-purple">Kelime Bulutu</h5>
+                <button class="btn btn-sm btn-icon" onclick="UI.switchView('home')"><i class="bi bi-chevron-left"></i></button>
+                <h5 class="m-0 fw-bold">Profil</h5>
+                <button class="btn btn-sm btn-icon" onclick="UI.switchView('settings')"><i class="bi bi-gear"></i></button>
+            </div>
+
+            <div class="text-center mb-4">
+                <div class="position-relative d-inline-block mb-3">
+                    <img src="${user.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + user.name}" 
+                         class="rounded-circle border border-4 border-primary shadow" width="100" height="100" id="profile-avatar-preview">
+                    <span class="position-absolute bottom-0 end-0 badge rounded-pill bg-warning text-dark border border-2 border-white">
+                        ${user.rank || 'Çaylak'}
+                    </span>
+                    <label class="position-absolute bottom-0 start-0 btn btn-sm btn-light border rounded-circle shadow-sm p-1" style="cursor: pointer;">
+                        <i class="bi bi-camera-fill text-primary"></i>
+                        <input type="file" class="d-none" accept="image/*" onchange="UI.handleAvatarUpload(this)">
+                    </label>
+                </div>
+                
+                <div class="d-flex justify-content-center gap-2 mb-3 overflow-auto py-2" style="white-space: nowrap;">
+                    ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(i => `
+                        <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Avatar${i}" 
+                             class="rounded-circle border border-2 ${user.avatar && user.avatar.includes('Avatar' + i) ? 'border-primary' : 'border-transparent'} clickable hover-scale" 
+                             width="40" height="40"
+                             onclick="Store.updateProfile(null, 'https://api.dicebear.com/7.x/avataaars/svg?seed=Avatar${i}'); UI.renderProfile(document.querySelector('.view-section.active'))">
+                    `).join('')}
+                </div>
+
+                <h3 class="fw-bold">${user.name}</h3>
+                <p class="text-muted small">Katılım: ${new Date().toLocaleDateString('tr-TR')}</p>
+            </div>
+
+            <div class="card border-0 shadow-sm rounded-4 p-3 mb-3 bg-light">
+                <div class="d-flex justify-content-between text-center">
+                    <div>
+                        <h5 class="fw-bold m-0 text-primary">${user.points}</h5>
+                        <small class="text-muted">Puan</small>
+                    </div>
+                    <div>
+                        <h5 class="fw-bold m-0 text-success">${Store.state.words.length}</h5>
+                        <small class="text-muted">Kelime</small>
+                    </div>
+                    <div>
+                        <h5 class="fw-bold m-0 text-danger">${user.stats.totalLearned || 0}</h5>
+                        <small class="text-muted">Ezber</small>
+                    </div>
+                </div>
+            </div>
+
+            <h6 class="fw-bold mb-3">Başarımlar (${badges.length})</h6>
+            <div class="row g-2 mb-4">
+                ${badges.length > 0 ? badges.map(b => `
+                    <div class="col-6">
+                        <div class="p-2 border rounded-3 bg-white shadow-sm d-flex align-items-center gap-2">
+                            <i class="bi bi-award-fill text-warning fs-4"></i>
+                            <div style="line-height:1.2">
+                                <small class="d-block fw-bold">${b.title}</small>
+                                <span class="text-muted" style="font-size: 0.7rem">${b.desc}</span>
+                            </div>
+                        </div>
+                    </div>
+                `).join('') : '<div class="col-12 text-center text-muted small">Henüz başarım kilidi açılmadı.</div>'}
+            </div>
+
+            <button class="btn btn-primary w-100 rounded-pill py-3 mb-4 shadow" onclick="UI.renderPacks(document.querySelector('.view-section.active'))">
+                <i class="bi bi-bag-plus-fill me-2"></i> Yeni Paket Ekle
+            </button>
+
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white">
+                <div class="d-flex align-items-center gap-2 mb-3">
+                    <i class="bi bi-sliders text-primary"></i>
+                    <h6 class="fw-bold m-0">Ayarlar</h6>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label small text-muted fw-bold">Görünen İsim</label>
+                    <input type="text" class="form-control bg-light border-0" value="${user.name}" 
+                        onchange="Store.updateProfile(this.value, null)">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small text-muted fw-bold mb-2">Tema Seçimi</label>
+                    <div class="d-flex flex-wrap gap-2 justify-content-center">
+                        ${['light', 'night', 'ocean', 'sunset', 'forest', 'coffee', 'rose', 'cyber', 'luxury', 'terminal'].map(t => `
+                            <button class="btn p-0 rounded-circle border border-2 ${user.theme === t ? 'border-primary' : 'border-transparent'} shadow-sm" 
+                                style="width: 32px; height: 32px; overflow:hidden;"
+                                onclick="Store.setTheme('${t}'); UI.renderProfile(document.querySelector('.view-section.active'))">
+                                <span class="d-block w-100 h-100" style="background-color: var(--theme-${t}-bg, #ccc);"></span>
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-volume-mute-fill text-muted"></i>
+                        <span>Ses Efektleri</span>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch"
+                            ${!user.settings.mute ? 'checked' : ''} 
+                            onchange="Store.state.user.settings.mute = !this.checked; Store.save();">
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    renderPacks(container) {
+        const packs = Store.getPacks();
+        const installed = Store.state.packs || [];
+
+        container.innerHTML = `
+             <div class="d-flex justify-content-between align-items-center mb-4">
+                <button class="btn btn-sm btn-icon" onclick="UI.switchView('profile')"><i class="bi bi-chevron-left"></i></button>
+                <h5 class="fw-bold m-0 text-primary">Kelime Market</h5>
                 <div style="width: 32px;"></div>
             </div>
             
-            <div class="text-center mb-3">
-                <p class="text-muted">Kelimelerin üzerine tıkla ve hatırla!</p>
-            </div>
-
-            <div class="d-flex flex-wrap justify-content-center align-items-center gap-3 p-4 rounded-4 shadow-sm bg-white" style="min-height: 400px;">
-                ${words.map(w => {
-            const size = Math.max(0.8, Math.min(2.5, (w.stats?.incorrect || 1) * 0.5 + 0.5));
-            const colors = ['text-primary', 'text-success', 'text-warning', 'text-danger', 'text-info', 'text-dark'];
-            const color = colors[Math.floor(Math.random() * colors.length)];
-            return `
-                        <span class="clickable hover-scale ${color} fw-bold" 
-                              style="font-size: ${size}rem; transition: all 0.3s;"
-                              onclick="alert('${w.word}: ${w.meaning}')">
-                            ${w.word}
-                        </span>
-                    `;
-        }).join('')}
+            <div class="d-grid gap-3">
+                ${packs.map(pack => `
+                    <div class="card border-0 shadow-sm rounded-4 p-3">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="p-3 rounded-circle bg-light text-primary">
+                                <i class="bi ${pack.icon || 'bi-box-seam'} fs-4"></i>
+                            </div>
+                            <div class="flex-grow-1">
+                                <h6 class="fw-bold mb-1">${pack.title}</h6>
+                                <p class="text-muted small m-0">${pack.description}</p>
+                                <span class="badge bg-secondary bg-opacity-10 text-secondary mt-1">${pack.level}</span>
+                            </div>
+                            <button class="btn btn-sm ${installed.includes(pack.id) ? 'btn-success disabled' : 'btn-primary'}" 
+                                onclick="UI.handleImportPack('${pack.id}', this)">
+                                ${installed.includes(pack.id) ? '<i class="bi bi-check-lg"></i>' : 'İndir'}
+                            </button>
+                        </div>
+                    </div>
+                `).join('')}
             </div>
         `;
+    },
+
+    handleAvatarUpload(input) {
+        if (input.files && input.files[0]) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const base64 = e.target.result;
+                Store.updateProfile(null, base64);
+                // Update preview immediately
+                const img = document.getElementById('profile-avatar-preview');
+                if (img) img.src = base64;
+            };
+            reader.readAsDataURL(input.files[0]);
+        }
+    },
+
+    handleImportPack(packId, btn) {
+        if (btn.classList.contains('disabled')) return;
+
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+        setTimeout(() => {
+            const addedCount = Store.importPack(packId);
+            btn.className = 'btn btn-sm btn-success disabled';
+            btn.innerHTML = '<i class="bi bi-check-lg"></i>';
+            alert(`${addedCount} yeni kelime eklendi!`);
+        }, 500);
     },
 
     // --- Dynamic Reading Generator ---
