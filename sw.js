@@ -2,9 +2,9 @@ const CACHE_NAME = 'yds-app-v3';
 const ASSETS = [
     './',
     './index.html',
-    './css/style.css',
-    './js/main.js',
-    './js/yds_data.js',
+    './style.css',
+    './main.js',
+    './yds_data.js',
     'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css',
     'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css',
     'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js',

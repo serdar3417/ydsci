@@ -13,7 +13,7 @@
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="style.css" onerror="handleResourceError('style.css')">
     <link rel="manifest" href="manifest.json">
     <style>
         #error-display {
@@ -40,34 +40,34 @@
         }
     </style>
     <div id="error-display">
-        <h3 style="color: white;">Uygulama Hatası</h3>
+        <h3 style="color: white;">⚠️ Yükleme Hatası</h3>
         <div id="error-content"></div>
-        <button onclick="localStorage.clear(); location.reload();"
-            style="margin-top: 1rem; padding: 0.5rem 1rem; cursor: pointer;">Verileri Temizle ve Yenile</button>
+        <p style="color: #ccc; margin-top: 1rem;">Olası Sebep: Dosyalar GitHub'a yüklenemedi. Lütfen tüm dosyaların
+            (html, css, js) yüklendiğinden emin olun.</p>
+        <button onclick="location.reload();"
+            style="margin-top: 1rem; padding: 0.5rem 1rem; cursor: pointer;">Yenile</button>
     </div>
     <script>
+        // Resource Error Handler
+        window.handleResourceError = function (resource) {
+            const display = document.getElementById('error-display');
+            const content = document.getElementById('error-content');
+            if (display && content) {
+                display.style.display = 'block';
+                content.innerText += `DOSYA BULUNAMADI: ${resource}\nLütfen GitHub'da '${resource}' dosyasının yüklü olduğundan emin olun.\n-------------------\n`;
+            }
+        };
+
         // GLOBAL ERROR TRAP
         window.onerror = function (msg, url, lineNr, columnNr, error) {
             const display = document.getElementById('error-display');
             const content = document.getElementById('error-content');
             if (display && content) {
                 display.style.display = 'block';
-                content.innerText += `HATA: ${msg}\nDosya: ${url}:${lineNr}:${columnNr}\n\n${error ? error.stack : ''}\n-------------------\n`;
+                content.innerText += `JS HATASI: ${msg}\nDosya: ${url}:${lineNr}\n-------------------\n`;
             }
-            // Also log to console
-            console.error('Global Error:', error);
             return false;
         };
-
-        // Catch Promise Errors
-        window.addEventListener('unhandledrejection', function (event) {
-            const display = document.getElementById('error-display');
-            const content = document.getElementById('error-content');
-            if (display && content) {
-                display.style.display = 'block';
-                content.innerText += `PROMISE HATASI: ${event.reason}\n-------------------\n`;
-            }
-        });
     </script>
 </head>
 
@@ -204,8 +204,8 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <!-- Tone.js for Audio -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
-    <script src="js/yds_data.js?v=3"></script>
-    <script src="js/main.js?v=6"></script>
+    <script src="yds_data.js?v=4" onerror="handleResourceError('yds_data.js')"></script>
+    <script src="main.js?v=7" onerror="handleResourceError('main.js')"></script>
 </body>
 
 </html>
