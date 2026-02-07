@@ -44,8 +44,12 @@
         <div id="error-content"></div>
         <p style="color: #ccc; margin-top: 1rem;">Olası Sebep: Dosyalar GitHub'a yüklenemedi. Lütfen tüm dosyaların
             (html, css, js) yüklendiğinden emin olun.</p>
-        <button onclick="location.reload();"
-            style="margin-top: 1rem; padding: 0.5rem 1rem; cursor: pointer;">Yenile</button>
+        <div style="display: flex; gap: 10px; margin-top: 1rem;">
+            <button onclick="location.reload();" style="padding: 0.5rem 1rem; cursor: pointer;">Yenile</button>
+            <button onclick="document.getElementById('error-display').style.display='none';"
+                style="padding: 0.5rem 1rem; cursor: pointer; background: #555; color: white; border: 1px solid #777;">Kapat
+                ve Devam Et</button>
+        </div>
     </div>
     <script>
         // Resource Error Handler
@@ -54,12 +58,18 @@
             const content = document.getElementById('error-content');
             if (display && content) {
                 display.style.display = 'block';
-                content.innerText += `DOSYA BULUNAMADI: ${resource}\nLütfen GitHub'da '${resource}' dosyasının yüklü olduğundan emin olun.\n-------------------\n`;
+                content.innerText += `DOSYA BULUNAMADI: ${resource}\nLütfen dosyanın yüklü olduğundan emin olun.\n-------------------\n`;
             }
         };
 
         // GLOBAL ERROR TRAP
         window.onerror = function (msg, url, lineNr, columnNr, error) {
+            // Ignore generic Script error with no URL (common in file:// or extensions)
+            if (msg === 'Script error.' && !url) {
+                console.warn('Ignored generic Script error.');
+                return true;
+            }
+
             const display = document.getElementById('error-display');
             const content = document.getElementById('error-content');
             if (display && content) {

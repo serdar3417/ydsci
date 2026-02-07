@@ -2137,6 +2137,23 @@ const UI = {
                     </div>
                 </div>` : ''}
 
+                <!-- Today's Word -->
+                 <div class="col-12">
+                    ${words.length > 0 ? (() => {
+                const randomWord = words[Math.floor(Math.random() * words.length)];
+                return `
+                        <div class="card border-0 shadow-sm rounded-4 p-3 bg-dark text-white position-relative overflow-hidden mb-2" onclick="UI.renderFlashcards(document.querySelector('.view-section.active'))">
+                             <div class="position-absolute end-0 top-0 p-3 opacity-25">
+                                <i class="bi bi-quote fs-1"></i>
+                            </div>
+                            <small class="text-warning fw-bold mb-1">Günün Kelimesi</small>
+                            <h3 class="fw-bold mb-1">${randomWord.word}</h3>
+                            <p class="m-0 opacity-75">${randomWord.meaning}</p>
+                        </div>
+                        `;
+            })() : ''}
+                </div>
+
                 <!-- Daily Goal Card -->
                 <div class="col-12">
                     <div class="card border-0 shadow-sm rounded-4 p-3 bg-gradient-primary text-white position-relative overflow-hidden mb-2 bounce-in">
@@ -2163,6 +2180,17 @@ const UI = {
                 </div>
 
                 <!-- Quick Actions -->
+                <div class="col-6">
+                    <div class="card border-0 shadow-sm rounded-4 p-3 h-100 text-center clickable hover-scale bg-primary text-white" 
+                        style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);"
+                        onclick="UI.startDuelMode()">
+                        <div class="mb-2">
+                            <i class="bi bi-lightning-fill fs-1"></i>
+                        </div>
+                        <h6 class="fw-bold">Düello</h6>
+                        <small class="text-white-50">Canan Hoca'yla Yarış</small>
+                    </div>
+                </div>
                 <div class="col-6">
                     <div class="card border-0 shadow-sm rounded-4 p-3 h-100 text-center clickable hover-scale bg-light" onclick="UI.switchView('learn')">
                         <div class="mb-2">
@@ -2201,6 +2229,15 @@ const UI = {
                         <small class="text-muted">Görsel Bulmaca</small>
                     </div>
                 </div>
+                <div class="col-6">
+                    <div class="card border-0 shadow-sm rounded-4 p-3 h-100 text-center clickable hover-scale bg-white" onclick="alert('Kelime Avı Çok Yakında!')">
+                        <div class="mb-2">
+                             <i class="bi bi-grid-3x3-gap-fill fs-1 text-info"></i>
+                        </div>
+                        <h6 class="fw-bold">Kelime Avı</h6>
+                        <small class="text-muted">Bulmaca</small>
+                    </div>
+                </div>
 
                 <!-- Stats Overview -->
                 <div class="col-12">
@@ -2223,22 +2260,7 @@ const UI = {
                     </div>
                 </div>
 
-                <!-- Today's Word -->
-                 <div class="col-12">
-                    ${words.length > 0 ? (() => {
-                const randomWord = words[Math.floor(Math.random() * words.length)];
-                return `
-                        <div class="card border-0 shadow-sm rounded-4 p-3 bg-dark text-white position-relative overflow-hidden" onclick="UI.renderFlashcards(document.querySelector('.view-section.active'))">
-                             <div class="position-absolute end-0 top-0 p-3 opacity-25">
-                                <i class="bi bi-quote fs-1"></i>
-                            </div>
-                            <small class="text-warning fw-bold mb-1">Günün Kelimesi</small>
-                            <h3 class="fw-bold mb-1">${randomWord.word}</h3>
-                            <p class="m-0 opacity-75">${randomWord.meaning}</p>
-                        </div>
-                        `;
-            })() : ''}
-                </div>
+
             </div>
             
             <div style="height: 80px;"></div> <!-- Spacer for bottom nav if added -->
@@ -2750,6 +2772,269 @@ const UI = {
         }
     },
 
+    // --- DUEL MODE (KELİME DÜELLOSU) ---
+    startDuelMode() {
+        const container = document.querySelector('.view-section.active');
+        if (!container) return;
+
+        // Initialize Duel State
+        this.duelState = {
+            playerHp: 100,
+            botHp: 100,
+            score: 0,
+            questionIndex: 0,
+            questions: [],
+            bot: null,
+            timer: null,
+            botTimer: null,
+            isOver: false
+        };
+
+        // Select random words for questions
+        const allWords = Store.state.words;
+        if (allWords.length < 5) {
+            alert('Düello için en az 5 kelime eklemelisin!');
+            return;
+        }
+
+        // Pick 10 random questions
+        this.duelState.questions = Array.from({ length: 10 }, () => allWords[Math.floor(Math.random() * allWords.length)]);
+
+        // Select Opponent
+        const opponents = [
+            { name: 'Canan Hoca', avatar: '👩‍🏫', diff: 'hard', speed: 2000, color: '#e91e63' },
+            { name: 'Mert', avatar: '👨‍💻', diff: 'medium', speed: 3500, color: '#3f51b5' },
+            { name: 'Aslı', avatar: '👩‍🎨', diff: 'easy', speed: 5000, color: '#ff9800' }
+        ];
+        this.duelState.bot = opponents[Math.floor(Math.random() * opponents.length)];
+
+        this.renderDuelGame(container);
+        this.nextDuelQuestion();
+    },
+
+    renderDuelGame(container) {
+        const bot = this.duelState.bot;
+        container.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <button class="btn btn-sm btn-icon" onclick="UI.switchView('home')"><i class="bi bi-x-lg"></i></button>
+                <div class="badge bg-danger bg-opacity-10 text-danger px-3 py-2 rounded-pill">
+                    🔥 DÜELLO MODU
+                </div>
+                <span></span>
+            </div>
+
+            <!-- Arenas -->
+            <div class="row g-2 mb-4">
+                <!-- Player Side -->
+                <div class="col-6">
+                    <div class="card border-0 shadow-sm p-3 text-center h-100" style="background:linear-gradient(180deg, #f0f9ff 0%, #fff 100%);">
+                        <div class="mb-2 position-relative d-inline-block">
+                             <div class="rounded-circle d-flex align-items-center justify-content-center bg-primary text-white mx-auto shadow" style="width:60px; height:60px; font-size:1.8rem;">
+                                👤
+                             </div>
+                             <span class="position-absolute top-100 start-50 translate-middle badge rounded-pill bg-primary border border-2 border-white">Sen</span>
+                        </div>
+                        <div class="progress mt-3" style="height: 10px; background: #e0e0e0;">
+                            <div class="progress-bar bg-success" id="player-hp-bar" style="width: 100%"></div>
+                        </div>
+                        <small class="fw-bold mt-1 d-block text-success" id="player-hp-text">100 HP</small>
+                    </div>
+                </div>
+
+                <!-- Bot Side -->
+                <div class="col-6">
+                    <div class="card border-0 shadow-sm p-3 text-center h-100" style="background:linear-gradient(180deg, ${bot.color}15 0%, #fff 100%);">
+                        <div class="mb-2 position-relative d-inline-block">
+                             <div class="rounded-circle d-flex align-items-center justify-content-center text-white mx-auto shadow" style="width:60px; height:60px; font-size:1.8rem; background:${bot.color};">
+                                ${bot.avatar}
+                             </div>
+                             <span class="position-absolute top-100 start-50 translate-middle badge rounded-pill bg-dark border border-2 border-white">${bot.name}</span>
+                        </div>
+                        <div class="progress mt-3" style="height: 10px; background: #e0e0e0;">
+                            <div class="progress-bar bg-danger" id="bot-hp-bar" style="width: 100%"></div>
+                        </div>
+                         <small class="fw-bold mt-1 d-block text-danger" id="bot-hp-text">100 HP</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VS Badge -->
+            <div class="text-center mt-n5 mb-4 position-relative" style="z-index: 5; margin-top: -30px;">
+                <span class="badge rounded-circle bg-warning text-dark border border-4 border-white shadow p-2 fs-5 fw-bold">VS</span>
+            </div>
+
+            <!-- Question Area -->
+            <div id="duel-question-area" class="text-center mt-3">
+                <div class="spinner-border text-primary" role="status"></div>
+            </div>
+            
+            <!-- Log Area -->
+            <div id="duel-log" class="mt-3 text-center small text-muted" style="height: 20px;"></div>
+        `;
+    },
+
+    nextDuelQuestion() {
+        if (this.duelState.isOver) return;
+
+        if (this.duelState.questionIndex >= this.duelState.questions.length) {
+            this.endDuel(true); // Win by survival
+            return;
+        }
+
+        const q = this.duelState.questions[this.duelState.questionIndex];
+        const area = document.getElementById('duel-question-area');
+        if (!area) return;
+
+        // Generate options (1 correct, 3 wrong)
+        const all = Store.state.words;
+        const wrong = [];
+        while (wrong.length < 3) {
+            const r = all[Math.floor(Math.random() * all.length)];
+            if (r.id !== q.id && !wrong.includes(r)) wrong.push(r);
+        }
+        const options = [...wrong, q].sort(() => Math.random() - 0.5);
+
+        area.innerHTML = `
+            <h2 class="fw-bold mb-4 animate__animated animate__fadeInDown">${q.word}</h2>
+            <div class="row g-2">
+                ${options.map(opt => `
+                    <div class="col-6">
+                        <button class="btn btn-outline-dark w-100 py-3 rounded-4 fw-medium border-2 h-100" 
+                            onclick="UI.handleDuelAnswer(this, '${opt.id === q.id}')">
+                            ${opt.meaning}
+                        </button>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+
+        // Start Bot Timer
+        clearTimeout(this.duelState.botTimer);
+        const botSpeed = this.duelState.bot.speed + (Math.random() * 1000 - 500);
+        this.duelState.botTimer = setTimeout(() => this.botDuelAction(q), botSpeed);
+    },
+
+    handleDuelAnswer(btn, isCorrect) {
+        if (this.duelState.isOver) return;
+
+        // Disable all buttons
+        const area = document.getElementById('duel-question-area');
+        const btns = area.querySelectorAll('button');
+        btns.forEach(b => b.disabled = true);
+        clearTimeout(this.duelState.botTimer); // Stop bot from answering this one
+
+        if (isCorrect === 'true') {
+            btn.classList.remove('btn-outline-dark');
+            btn.classList.add('btn-success');
+            this.damageDuelEntity('bot', 20);
+            AudioMgr.play('success');
+            document.getElementById('duel-log').innerHTML = '<span class="text-success fw-bold">🎯 İsabetli vuruş!</span>';
+        } else {
+            btn.classList.remove('btn-outline-dark');
+            btn.classList.add('btn-danger');
+            this.damageDuelEntity('player', 15);
+            AudioMgr.play('error');
+            document.getElementById('duel-log').innerHTML = '<span class="text-danger fw-bold">❌ Iskaladın!</span>';
+        }
+
+        setTimeout(() => {
+            this.duelState.questionIndex++;
+            this.nextDuelQuestion();
+        }, 1500);
+    },
+
+    botDuelAction(q) {
+        if (this.duelState.isOver) return;
+
+        // Determine if bot guesses right based on difficulty
+        const roll = Math.random();
+        let hitChance = 0.5;
+        if (this.duelState.bot.diff === 'hard') hitChance = 0.8;
+        if (this.duelState.bot.diff === 'easy') hitChance = 0.3;
+
+        const area = document.getElementById('duel-question-area');
+        if (!area) return;
+        const btns = area.querySelectorAll('button');
+        btns.forEach(b => b.disabled = true); // Lock player out
+
+        if (roll < hitChance) {
+            // Bot Hits
+            this.damageDuelEntity('player', 20);
+            document.getElementById('duel-log').innerHTML = `<span class="text-danger fw-bold">⚡ ${this.duelState.bot.name} saldırdı!</span>`;
+            AudioMgr.play('error');
+        } else {
+            // Bot Misses
+            document.getElementById('duel-log').innerHTML = `<span class="text-muted">💨 ${this.duelState.bot.name} ıskaladı.</span>`;
+        }
+
+        setTimeout(() => {
+            this.duelState.questionIndex++;
+            this.nextDuelQuestion();
+        }, 1500);
+    },
+
+    damageDuelEntity(target, amount) {
+        if (target === 'bot') {
+            this.duelState.botHp = Math.max(0, this.duelState.botHp - amount);
+            document.getElementById('bot-hp-bar').style.width = this.duelState.botHp + '%';
+            document.getElementById('bot-hp-text').innerText = this.duelState.botHp + ' HP';
+
+            // Animation effect
+            const card = document.querySelector('.col-6:last-child .card');
+            card.classList.add('animate__animated', 'animate__shakeX');
+            setTimeout(() => card.classList.remove('animate__animated', 'animate__shakeX'), 500);
+
+            if (this.duelState.botHp <= 0) this.endDuel(true);
+        } else {
+            this.duelState.playerHp = Math.max(0, this.duelState.playerHp - amount);
+            document.getElementById('player-hp-bar').style.width = this.duelState.playerHp + '%';
+            document.getElementById('player-hp-text').innerText = this.duelState.playerHp + ' HP';
+
+            // Animation effect
+            const card = document.querySelector('.col-6:first-child .card');
+            card.classList.add('animate__animated', 'animate__shakeX');
+            setTimeout(() => card.classList.remove('animate__animated', 'animate__shakeX'), 500);
+
+            if (this.duelState.playerHp <= 0) this.endDuel(false);
+        }
+    },
+
+    endDuel(isWin) {
+        this.duelState.isOver = true;
+        clearTimeout(this.duelState.botTimer);
+
+        const container = document.querySelector('.view-section.active');
+        if (isWin) {
+            AudioMgr.play('success');
+            // Give Rewards
+            Store.state.user.points += 50;
+            Store.save();
+            this.updateHeaderPoints();
+
+            container.innerHTML = `
+                <div class="text-center py-5 animate__animated animate__zoomIn">
+                    <div style="font-size:4rem;">🏆</div>
+                    <h1 class="fw-bold mt-3 text-warning">KAZANDIN!</h1>
+                    <p class="lead">Harika bir düelloydu.</p>
+                    <div class="badge bg-warning text-dark fs-5 mb-4">+50 Puan</div>
+                    <br>
+                    <button class="btn btn-primary rounded-pill px-5" onclick="UI.startDuelMode()">Tekrar Oyna</button>
+                    <button class="btn btn-outline-secondary rounded-pill px-4" onclick="UI.switchView('home')">Çıkış</button>
+                </div>
+            `;
+        } else {
+            container.innerHTML = `
+                <div class="text-center py-5 animate__animated animate__shakeX">
+                    <div style="font-size:4rem;">💀</div>
+                    <h1 class="fw-bold mt-3 text-danger">KAYBETTİN...</h1>
+                    <p class="text-muted">${this.duelState.bot.name} çok güçlüydü.</p>
+                    <button class="btn btn-primary rounded-pill px-5 mt-3" onclick="UI.startDuelMode()">Rövanş?</button>
+                    <button class="btn btn-outline-secondary rounded-pill px-4 mt-3" onclick="UI.switchView('home')">Eve Dön</button>
+                </div>
+            `;
+        }
+    },
+
     // --- Helpers ---
     getEmptyStateHtml() {
         return `
@@ -2923,83 +3208,37 @@ const UI = {
             reader.readAsDataURL(input.files[0]);
         }
     },
-    renderPacksMarket(container) {
-        const packs = Store.getPacks();
-        const installed = Store.state.packs || [];
 
-        container.innerHTML = `
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <button class="btn btn-sm btn-icon" onclick="UI.switchView('profile')"><i class="bi bi-chevron-left"></i></button>
-                <h5 class="fw-bold m-0 text-primary">Kelime Marketi 🛍️</h5>
-                <div style="width: 32px;"></div>
-            </div>
+    // --- Dynamic Reading Generator ---
+    generateReadingContent(chunk, index) {
+        const title = `Bölüm ${index + 1}: ${chunk[0].word} - ${chunk[chunk.length - 1].word}`;
 
-            <div class="row g-3">
-                ${packs.map(pack => {
-            const isInstalled = installed.includes(pack.id);
-            return `
-                    <div class="col-12">
-                        <div class="card border-0 shadow-sm rounded-4 p-3 h-100">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="bg-primary bg-opacity-10 p-3 rounded-circle text-primary">
-                                    <i class="bi ${pack.icon || 'bi-box'} fs-3"></i>
-                                </div>
-                                <div class="flex-grow-1">
-                                    <div class="d-flex justify-content-between align-items-start">
-                                        <h6 class="fw-bold mb-1">${pack.title}</h6>
-                                        <span class="badge bg-light text-dark border">${pack.level}</span>
-                                    </div>
-                                    <p class="text-muted small mb-2">${pack.description}</p>
-                                    <div class="d-flex justify-content-between align-items-center">
-                                        <small class="fw-bold text-primary">${pack.words.length} Kelime</small>
-                                        <button class="btn btn-sm rounded-pill px-3 ${isInstalled ? 'btn-secondary' : 'btn-primary'}" 
-                                            onclick="UI.handleImportPack('${pack.id}', this)" ${isInstalled ? 'disabled' : ''}>
-                                            ${isInstalled ? '<i class="bi bi-check2"></i> İndirildi' : 'İndir'}
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `}).join('')}
-            </div>
-        `;
-    },
-    if(btn.classList.contains('disabled')) return;
+        let enText = "";
+        let trText = "";
 
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-    setTimeout(() => {
-    const addedCount = Store.importPack(packId);
-    btn.className = 'btn btn-sm btn-success disabled';
-    btn.innerHTML = '<i class="bi bi-check-lg"></i>';
-    alert(`${addedCount} yeni kelime eklendi!`);
-}, 500);
-    },
+        // Template Libraries for sentence generation
+        const templates = [
+            { en: (w) => `The concept of ${w} is often discussed.`, tr: (m) => `${m} kavramı sıklıkla tartışılır.` },
+            { en: (w) => `We need to understand ${w} deeply.`, tr: (m) => `${m} konusunu derinlemesine anlamalıyız.` },
+            { en: (w) => `Many researchers focus on ${w}.`, tr: (m) => `Pek çok araştırmacı ${m} üzerine odaklanmaktadır.` },
+            { en: (w) => `This example demonstrates ${w} clearly.`, tr: (m) => `Bu örnek ${m} kavramını açıkça göstermektedir.` },
+            { en: (w) => `Can we define ${w} in this context?`, tr: (m) => `Bu bağlamda ${m} kavramını tanımlayabilir miyiz?` },
+            { en: (w) => `The impact of ${w} is significant.`, tr: (m) => `${m} etkisinin önemi büyüktür.` },
+            { en: (w) => `Usually, ${w} plays a vital role.`, tr: (m) => `Genellikle ${m} hayati bir rol oynar.` },
+            { en: (w) => `It is hard to ignore ${w}.`, tr: (m) => `${m} gerçeğini görmezden gelmek zordur.` },
+            { en: (w) => `Experts say that ${w} is changing.`, tr: (m) => `Uzmanlar ${m} durumunun değiştiğini söylüyor.` },
+            { en: (w) => `Without ${w}, the system fails.`, tr: (m) => `${m} olmadan sistem başarısız olur.` },
+            { en: (w) => `Let's consider the aspects of ${w}.`, tr: (m) => `Hadi ${m} yönlerini ele alalım.` },
+            { en: (w) => `The true meaning of ${w} remains debated.`, tr: (m) => `${m} kelimesinin gerçek anlamı tartışılmaya devam ediyor.` },
+            { en: (w) => `Historically, ${w} was quite common.`, tr: (m) => `Tarihsel olarak ${m} oldukça yaygındı.` }
+        ];
 
-// --- Dynamic Reading Generator ---
-// --- Dynamic Reading Generator ---
-// --- Dynamic Reading Generator ---
-generateReadingContent(chunk, index) {
-    const title = `Bölüm ${index + 1}: ${chunk[0].word} - ${chunk[chunk.length - 1].word}`;
-
-    let enText = "";
-    let trText = "";
-
-    // Template Libraries for sentence generation
-    const templates = [
-        { en: (w) => `The concept of ${w} is often discussed.`, tr: (m) => `${m} kavramı sıklıkla tartışılır.` },
-        { en: (w) => `We need to understand ${w} deeply.`, tr: (m) => `${m} konusunu derinlemesine anlamalıyız.` },
-        { en: (w) => `Many researchers focus on ${w}.`, tr: (m) => `Pek çok araştırmacı ${m} üzerine odaklanmaktadır.` },
-        { en: (w) => `This example demonstrates ${w} clearly.`, tr: (m) => `Bu örnek ${m} kavramını açıkça göstermektedir.` },
-        { en: (w) => `Can we define ${w} in this context?`, tr: (m) => `Bu bağlamda ${m} kavramını tanımlayabilir miyiz?` },
-        { en: (w) => `The impact of ${w} is significant.`, tr: (m) => `${m} etkisinin önemi büyüktür.` },
-        { en: (w) => `Usually, ${w} plays a vital role.`, tr: (m) => `Genellikle ${m} hayati bir rol oynar.` },
-        { en: (w) => `It is hard to ignore ${w}.`, tr: (m) => `${m} gerçeğini görmezden gelmek zordur.` },
-        { en: (w) => `Experts say that ${w} is changing.`, tr: (m) => `Uzmanlar ${m} durumunun değiştiğini söylüyor.` },
-        { en: (w) => `Without ${w}, the system fails.`, tr: (m) => `${m} olmadan sistem başarısız olur.` },
-        { en: (w) => `Let's consider the aspects of ${w}.`, tr: (m) => `Hadi ${m} yönlerini ele alalım.` },
-        { en: (w) => `The true meaning of ${w} remains debated.`, tr: (m) => `${m} kelimesinin gerçek anlamı tartışılmaya devam ediyor.` },
-        { en: (w) => `Historically, ${w} was quite common.`, tr: (m) => `Tarihsel olarak ${m} oldukça yaygındı.` },
+        // Generate sentences for each word
+        chunk.forEach(w => {
+            const template = templates[Math.floor(Math.random() * templates.length)];
+            enText += template.en(w.word) + " ";
+            trText += template.tr(w.meaning) + " ";
+        });
 
         // Add a clear Vocabulary List at the bottom as requested
         trText += `
@@ -3011,34 +3250,34 @@ generateReadingContent(chunk, index) {
             </div>
         `;
 
-    // Mock "Related Words" relative to the chunk topic
-    const related = chunk.slice(0, 5).map(w => ({ word: w.meaning, meaning: w.word }));
+        // Mock "Related Words" relative to the chunk topic
+        const related = chunk.slice(0, 5).map(w => ({ word: w.meaning, meaning: w.word }));
 
-    return {
-        id: index,
-        title: title,
-        level: 'Dynamic',
-        en: enText.trim(),
-        tr: trText.trim(), // Now a full paragraph
-        words: chunk,
-        related: related
-    };
-},
+        return {
+            id: index,
+            title: title,
+            level: 'Dynamic',
+            en: enText.trim(),
+            tr: trText.trim(), // Now a full paragraph
+            words: chunk,
+            related: related
+        };
+    },
 
-renderParagraphMode(container) {
-    const words = Store.state.words;
-    const chunkSize = 20;
-    const chunks = [];
-    for (let i = 0; i < words.length; i += chunkSize) {
-        chunks.push(words.slice(i, i + chunkSize));
-    }
+    renderParagraphMode(container) {
+        const words = Store.state.words;
+        const chunkSize = 20;
+        const chunks = [];
+        for (let i = 0; i < words.length; i += chunkSize) {
+            chunks.push(words.slice(i, i + chunkSize));
+        }
 
-    if (chunks.length === 0) {
-        container.innerHTML = this.getEmptyStateHtml();
-        return;
-    }
+        if (chunks.length === 0) {
+            container.innerHTML = this.getEmptyStateHtml();
+            return;
+        }
 
-    container.innerHTML = `
+        container.innerHTML = `
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <button class="btn btn-sm btn-icon" onclick="UI.switchView('learn')"><i class="bi bi-chevron-left"></i></button>
                 <h5 class="fw-bold m-0 text-dark">Okuma Kütüphanesi</h5>
@@ -3050,8 +3289,8 @@ renderParagraphMode(container) {
             
             <div class="row g-3">
                 ${chunks.map((chunk, index) => {
-        const preview = chunk.slice(0, 3).map(w => w.word).join(', ') + '...';
-        return `
+            const preview = chunk.slice(0, 3).map(w => w.word).join(', ') + '...';
+            return `
                     <div class="col-12">
                         <div class="card border-0 shadow-sm rounded-4 p-4 clickable hover-scale" onclick="UI.renderParagraphDetail(document.querySelector('.view-section.active'), ${index})">
                             <div class="d-flex justify-content-between align-items-center">
@@ -3068,31 +3307,31 @@ renderParagraphMode(container) {
                 `}).join('')}
             </div>
         `;
-},
+    },
 
-// --- Word Network Logic ---
-openNetworkModal(wordText) {
-    const wordObj = Store.state.words.find(w => w.word === wordText);
-    if (!wordObj) return;
+    // --- Word Network Logic ---
+    openNetworkModal(wordText) {
+        const wordObj = Store.state.words.find(w => w.word === wordText);
+        if (!wordObj) return;
 
-    // Mock Related Words: Get 5-8 random words from the same tag or random
-    let related = Store.state.words
-        .filter(w => w.word !== wordText) // Exclude self
-        .sort(() => Math.random() - 0.5) // Shuffle
-        .slice(0, 8); // Take 8
+        // Mock Related Words: Get 5-8 random words from the same tag or random
+        let related = Store.state.words
+            .filter(w => w.word !== wordText) // Exclude self
+            .sort(() => Math.random() - 0.5) // Shuffle
+            .slice(0, 8); // Take 8
 
-    const container = document.getElementById('network-cloud-container');
-    const titleEl = document.getElementById('networkModalTitle');
-    // UPDATE: Show meaning in title as requested
-    if (titleEl) titleEl.innerText = `${wordObj.word} : ${wordObj.meaning}`;
+        const container = document.getElementById('network-cloud-container');
+        const titleEl = document.getElementById('networkModalTitle');
+        // UPDATE: Show meaning in title as requested
+        if (titleEl) titleEl.innerText = `${wordObj.word} : ${wordObj.meaning}`;
 
-    if (container) {
-        container.innerHTML = related.map(w => {
-            const size = Math.floor(Math.random() * 3) + 1; // 1 to 3
-            const colors = ['primary', 'success', 'info', 'warning', 'danger'];
-            const color = colors[Math.floor(Math.random() * colors.length)];
+        if (container) {
+            container.innerHTML = related.map(w => {
+                const size = Math.floor(Math.random() * 3) + 1; // 1 to 3
+                const colors = ['primary', 'success', 'info', 'warning', 'danger'];
+                const color = colors[Math.floor(Math.random() * colors.length)];
 
-            return `
+                return `
                     <div class="position-relative d-inline-block m-2 text-center p-3 rounded-circle border border-${color} bg-${color} bg-opacity-10 clickable hover-scale"
                          style="width: ${80 + size * 10}px; height: ${80 + size * 10}px; display: flex; align-items: center; justify-content: center; flex-direction: column;"
                          onclick="this.querySelector('.translation').classList.toggle('d-none')">
@@ -3100,46 +3339,46 @@ openNetworkModal(wordText) {
                         <span class="translation text-muted small mt-1 fw-bold">${w.meaning}</span>
                     </div>
                 `;
-        }).join('');
-    }
+            }).join('');
+        }
 
-    // Show Modal
-    const modalEl = document.getElementById('wordNetworkModal');
-    if (modalEl) {
-        const modal = new bootstrap.Modal(modalEl);
-        modal.show();
-    } else {
-        console.error('Word Network Modal not found!');
-    }
-},
+        // Show Modal
+        const modalEl = document.getElementById('wordNetworkModal');
+        if (modalEl) {
+            const modal = new bootstrap.Modal(modalEl);
+            modal.show();
+        } else {
+            console.error('Word Network Modal not found!');
+        }
+    },
 
-renderParagraphDetail(container, index) {
-    const words = Store.state.words;
-    const chunkSize = 20;
-    const start = index * chunkSize;
-    const chunk = words.slice(start, start + chunkSize);
+    renderParagraphDetail(container, index) {
+        const words = Store.state.words;
+        const chunkSize = 20;
+        const start = index * chunkSize;
+        const chunk = words.slice(start, start + chunkSize);
 
-    // Generate content on the fly
-    const content = this.generateReadingContent(chunk, index);
+        // Generate content on the fly
+        const content = this.generateReadingContent(chunk, index);
 
-    // Highlight words logic - Make them CLICKABLE for the Network Cloud
-    let formattedText = content.en;
-    content.words.forEach(w => {
-        const regex = new RegExp(`\\b${w.word}\\b`, 'gi');
-        formattedText = formattedText.replace(regex, match =>
-            `<strong class="text-primary border-bottom border-primary clickable" onclick="UI.openNetworkModal('${w.word}')">${match}</strong>`
-        );
-    });
+        // Highlight words logic - Make them CLICKABLE for the Network Cloud
+        let formattedText = content.en;
+        content.words.forEach(w => {
+            const regex = new RegExp(`\\b${w.word}\\b`, 'gi');
+            formattedText = formattedText.replace(regex, match =>
+                `<strong class="text-primary border-bottom border-primary clickable" onclick="UI.openNetworkModal('${w.word}')">${match}</strong>`
+            );
+        });
 
-    // Add helper to window if not exists
-    if (!window.toggleTranslation) {
-        window.toggleTranslation = () => {
-            const el = document.getElementById('tr-text');
-            if (el) el.classList.toggle('d-none');
-        };
-    }
+        // Add helper to window if not exists
+        if (!window.toggleTranslation) {
+            window.toggleTranslation = () => {
+                const el = document.getElementById('tr-text');
+                if (el) el.classList.toggle('d-none');
+            };
+        }
 
-    container.innerHTML = `
+        container.innerHTML = `
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <button class="btn btn-sm btn-icon" onclick="UI.renderParagraphMode(document.querySelector('.view-section.active'))"><i class="bi bi-chevron-left"></i></button>
                 <h5 class="fw-bold m-0 text-dark w-100 text-center">${content.title}</h5>
@@ -3178,77 +3417,77 @@ renderParagraphDetail(container, index) {
                  `).join('')}
             </div>
         `;
-},
+    },
 
-renderClozeMode(container, index) {
-    const words = Store.state.words;
-    const chunkSize = 20;
-    const start = index * chunkSize;
-    const chunk = words.slice(start, start + chunkSize);
-    const content = this.generateReadingContent(chunk, index);
+    renderClozeMode(container, index) {
+        const words = Store.state.words;
+        const chunkSize = 20;
+        const start = index * chunkSize;
+        const chunk = words.slice(start, start + chunkSize);
+        const content = this.generateReadingContent(chunk, index);
 
-    let clozeText = content.en;
-    let blankId = 0;
-    content.words.forEach(w => {
-        const regex = new RegExp(`\\b${w.word}\\b`, 'gi');
-        // Create a specific clickable blank
-        clozeText = clozeText.replace(regex, `<span class="cloze-blank d-inline-block border-bottom border-2 border-primary text-primary fw-bold px-3 mx-1 clickable bg-primary bg-opacity-10" id="blank-${blankId}" onclick="UI.handleBlankClick(${blankId})" data-answer="${w.word.toLowerCase()}">____</span>`);
-        blankId++;
-    });
+        let clozeText = content.en;
+        let blankId = 0;
+        content.words.forEach(w => {
+            const regex = new RegExp(`\\b${w.word}\\b`, 'gi');
+            // Create a specific clickable blank
+            clozeText = clozeText.replace(regex, `<span class="cloze-blank d-inline-block border-bottom border-2 border-primary text-primary fw-bold px-3 mx-1 clickable bg-primary bg-opacity-10" id="blank-${blankId}" onclick="UI.handleBlankClick(${blankId})" data-answer="${w.word.toLowerCase()}">____</span>`);
+            blankId++;
+        });
 
-    // Setup state for the game
-    this.clozeState = {
-        selectedBlankId: null,
-        score: 0,
-        total: blankId
-    };
+        // Setup state for the game
+        this.clozeState = {
+            selectedBlankId: null,
+            score: 0,
+            total: blankId
+        };
 
-    // Define helpers
-    UI.handleBlankClick = (id) => {
-        // Reset previous
-        document.querySelectorAll('.cloze-blank').forEach(el => el.classList.remove('bg-warning'));
+        // Define helpers
+        UI.handleBlankClick = (id) => {
+            // Reset previous
+            document.querySelectorAll('.cloze-blank').forEach(el => el.classList.remove('bg-warning'));
 
-        UI.clozeState.selectedBlankId = id;
-        const el = document.getElementById(`blank-${id}`);
-        el.classList.add('bg-warning');
+            UI.clozeState.selectedBlankId = id;
+            const el = document.getElementById(`blank-${id}`);
+            el.classList.add('bg-warning');
 
-        // Provide visual feedback that blank is selected
-        AudioMgr.play('click');
-    };
+            // Provide visual feedback that blank is selected
+            AudioMgr.play('click');
+        };
 
-    UI.handleWordBankClick = (word) => {
-        if (UI.clozeState.selectedBlankId === null) {
-            alert('Lütfen önce metin içindeki boşluklardan birini seçin.');
-            return;
-        }
-
-        const blankEl = document.getElementById(`blank-${UI.clozeState.selectedBlankId}`);
-        const correctWord = blankEl.dataset.answer;
-
-        if (word.toLowerCase() === correctWord) {
-            blankEl.textContent = word;
-            blankEl.classList.remove('bg-warning', 'bg-primary', 'text-primary');
-            blankEl.classList.add('bg-success', 'text-white', 'rounded');
-            blankEl.onclick = null; // Disable clicking
-            UI.clozeState.score++;
-            UI.clozeState.selectedBlankId = null;
-            AudioMgr.play('win');
-
-            // Remove word from bank visually
-            const bankBtn = document.getElementById(`bank-btn-${word}`);
-            if (bankBtn) bankBtn.classList.add('opacity-25', 'disabled');
-
-            if (UI.clozeState.score === UI.clozeState.total) {
-                setTimeout(() => alert('Tebrikler! Bölümü tamamladınız.'), 500);
+        UI.handleWordBankClick = (word) => {
+            if (UI.clozeState.selectedBlankId === null) {
+                alert('Lütfen önce metin içindeki boşluklardan birini seçin.');
+                return;
             }
-        } else {
-            blankEl.classList.add('shake-anim');
-            setTimeout(() => blankEl.classList.remove('shake-anim'), 500);
-            AudioMgr.play('incorrect');
-        }
-    };
 
-    container.innerHTML = `
+            const blankEl = document.getElementById(`blank-${UI.clozeState.selectedBlankId}`);
+            const correctWord = blankEl.dataset.answer;
+
+            if (word.toLowerCase() === correctWord) {
+                blankEl.textContent = word;
+                blankEl.classList.remove('bg-warning', 'bg-primary', 'text-primary');
+                blankEl.classList.add('bg-success', 'text-white', 'rounded');
+                blankEl.onclick = null; // Disable clicking
+                UI.clozeState.score++;
+                UI.clozeState.selectedBlankId = null;
+                AudioMgr.play('win');
+
+                // Remove word from bank visually
+                const bankBtn = document.getElementById(`bank-btn-${word}`);
+                if (bankBtn) bankBtn.classList.add('opacity-25', 'disabled');
+
+                if (UI.clozeState.score === UI.clozeState.total) {
+                    setTimeout(() => alert('Tebrikler! Bölümü tamamladınız.'), 500);
+                }
+            } else {
+                blankEl.classList.add('shake-anim');
+                setTimeout(() => blankEl.classList.remove('shake-anim'), 500);
+                AudioMgr.play('incorrect');
+            }
+        };
+
+        container.innerHTML = `
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <button class="btn btn-sm btn-icon" onclick="UI.renderParagraphDetail(document.querySelector('.view-section.active'), ${index})"><i class="bi bi-chevron-left"></i></button>
                 <h5 class="fw-bold m-0 text-dark">Boşluk Doldurma</h5>
@@ -3274,15 +3513,15 @@ renderClozeMode(container, index) {
                 `).join('')}
             </div>
         `;
-},
+    },
 
-changeFontSize(delta) {
-    const root = document.documentElement;
-    const currentSize = parseFloat(getComputedStyle(root).getPropertyValue('--font-scale') || 1);
-    const newSize = Math.max(0.8, Math.min(1.4, currentSize + (delta * 0.1)));
+    changeFontSize(delta) {
+        const root = document.documentElement;
+        const currentSize = parseFloat(getComputedStyle(root).getPropertyValue('--font-scale') || 1);
+        const newSize = Math.max(0.8, Math.min(1.4, currentSize + (delta * 0.1)));
 
-    root.style.setProperty('--font-scale', newSize);
-},
+        root.style.setProperty('--font-scale', newSize);
+    },
 };
 
 // Expose UI to Global Scope
