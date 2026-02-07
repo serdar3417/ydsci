@@ -1,4 +1,4 @@
-export const READING_CONTENT = [
+const READING_CONTENT = [
     {
         id: 1,
         title: "Global Climate Crisis",
