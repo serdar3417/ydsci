@@ -101,12 +101,42 @@ const Store = {
             this.seedData();
         }
 
-        // Ensure league data exists
         if (this.state.league.length === 0) {
             this.seedLeague();
         }
 
+        // AUTO-SYNC: Check if we have new words in YDS_DATA that are not in State
+        this.syncWithStaticData();
+
         this.applyTheme();
+    },
+
+    syncWithStaticData() {
+        if (typeof YDS_DATA === 'undefined' || !Array.isArray(YDS_DATA)) return;
+
+        let addedCount = 0;
+        // Create a Set of existing words for O(1) lookup
+        const existingWords = new Set(this.state.words.map(w => w.word.toLowerCase()));
+
+        YDS_DATA.forEach(staticWord => {
+            if (!existingWords.has(staticWord.word.toLowerCase())) {
+                this.state.words.push({
+                    id: this.generateId(),
+                    word: staticWord.word,
+                    meaning: staticWord.meaning,
+                    example: staticWord.example || '',
+                    tags: staticWord.tag || ['YDS'],
+                    stats: { correct: 0, incorrect: 0 } // Initialize stats
+                });
+                existingWords.add(staticWord.word.toLowerCase());
+                addedCount++;
+            }
+        });
+
+        if (addedCount > 0) {
+            console.log(`Auto-Sync: Added ${addedCount} new words from YDS_DATA.`);
+            this.save();
+        }
     },
 
     generateId() {
