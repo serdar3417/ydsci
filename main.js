@@ -165,6 +165,14 @@ const Store = {
         this.save();
     },
 
+    toggleFavorite(id) {
+        const word = this.state.words.find(w => w.id === id);
+        if (word) {
+            word.isFavorite = !word.isFavorite;
+            this.save();
+        }
+    },
+
     updateUserPoints(amount) {
         this.state.user.points += amount;
         this.save();
@@ -461,6 +469,9 @@ const UI = {
             case 'games':
                 this.renderGames(viewDiv);
                 break;
+            case 'chat':
+                // Handled by Chat.renderChatInterface
+                break;
             case 'stats':
                 this.renderStats(viewDiv);
                 break;
@@ -482,6 +493,8 @@ const UI = {
         }
     },
 
+    // renderVocabList removed (duplicate)
+
     renderHome(container = document.getElementById('view-home')) {
         if (!container) return;
         const wordCount = Store.state.words.length;
@@ -489,6 +502,7 @@ const UI = {
 
         container.innerHTML = `
             <div class="row g-3">
+
                 <div class="col-12">
                      <div class="custom-card p-4 text-center">
                         <h2 class="fw-bold mb-1">Merhaba! 👋</h2>
@@ -522,6 +536,7 @@ const UI = {
                         <h6 class="fw-bold m-0">Test Çöz</h6>
                     </div>
                 </div>
+
                 <div class="col-12">
                     <div class="custom-card p-3 border-start border-4 border-warning">
                         <div class="d-flex justify-content-between align-items-start">
@@ -538,41 +553,7 @@ const UI = {
         `;
     },
 
-    renderVocabList(container = document.getElementById('view-vocab')) {
-        if (!container) return;
-        const words = Store.state.words;
-        let listHtml = `
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h4 class="fw-bold m-0">Kelimelerim</h4>
-                <div class="badge bg-primary rounded-pill">${words.length}</div>
-            </div>
-            <div class="input-group mb-3">
-                <span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span>
-                <input type="text" class="form-control border-start-0" placeholder="Kelime ara...">
-            </div>
-            <div class="vocab-list pb-5">
-        `;
-        if (words.length === 0) {
-            listHtml += `<div class="text-center text-muted py-5"><i class="bi bi-inbox fs-1"></i><p>Henüz kelime eklenmemiş.</p></div>`;
-        } else {
-            words.forEach(word => {
-                listHtml += `
-                    <div class="custom-card p-3 mb-2 d-flex justify-content-between align-items-center">
-                        <div>
-                            <div class="d-flex align-items-center gap-2">
-                                <h5 class="fw-bold m-0 text-primary">${word.word}</h5>
-                                <span class="badge bg-light text-dark border">${word.tags?.[0] || 'Genel'}</span>
-                            </div>
-                            <small class="text-muted">${word.meaning}</small>
-                        </div>
-                        <button class="btn btn-icon text-danger" onclick="UI.deleteWord('${word.id}')"><i class="bi bi-trash"></i></button>
-                    </div>
-                `;
-            });
-        }
-        listHtml += `</div>`;
-        container.innerHTML = listHtml;
-    },
+    // renderVocabList removed (duplicate)
 
     showAddModal() {
         const modalEl = document.getElementById('addWordModal');
@@ -590,6 +571,11 @@ const UI = {
             tags: [form.querySelector('#inputTag').value]
         };
         Store.addWord(word);
+
+        // Dispatch event for other modules (like Chat) to know a word was added
+        const event = new CustomEvent('word-added', { detail: word });
+        document.dispatchEvent(event);
+
         const modalEl = document.getElementById('addWordModal');
         const modal = bootstrap.Modal.getInstance(modalEl);
         modal.hide();
@@ -1226,8 +1212,14 @@ const UI = {
     },
 
     renderPronunciationGame(container) {
-        // Select random word
-        const word = Store.state.words[Math.floor(Math.random() * Store.state.words.length)];
+        // Select random word (Favorites prioritized)
+        const favorites = Store.state.words.filter(w => w.isFavorite);
+        let word;
+        if (favorites.length > 0 && Math.random() < 0.8) {
+            word = favorites[Math.floor(Math.random() * favorites.length)];
+        } else {
+            word = Store.state.words[Math.floor(Math.random() * Store.state.words.length)];
+        }
         this.pronunciationState.word = word;
         this.pronunciationState.listening = false;
 
@@ -1348,8 +1340,10 @@ const UI = {
     renderMatchingGame(container) {
         clearInterval(this.matchingTimer);
 
-        // Select 5 random words
-        const gameWords = [...Store.state.words].sort(() => 0.5 - Math.random()).slice(0, 5);
+        // Select 5 random words (Favorites prioritized)
+        const favorites = Store.state.words.filter(w => w.isFavorite).sort(() => 0.5 - Math.random());
+        const others = Store.state.words.filter(w => !w.isFavorite).sort(() => 0.5 - Math.random());
+        const gameWords = [...favorites, ...others].slice(0, 5);
 
         // Create Left (English) and Right (Turkish) arrays
         const leftSide = gameWords.map(w => ({ id: w.id, text: w.word, type: 'eng' })).sort(() => 0.5 - Math.random());
@@ -1927,6 +1921,21 @@ const UI = {
                 
                 <!-- Daily Goal Card -->
                 <div class="col-12">
+                     <div class="custom-card p-4 clickable text-center bg-danger bg-opacity-10 border border-danger border-opacity-25 mb-3" onclick="Chat.startChatMode()">
+                        <div class="d-flex align-items-center justify-content-center gap-3">
+                             <div class="bg-white p-3 rounded-circle shadow-sm">
+                                <i class="bi bi-chat-quote-fill text-danger fs-3"></i>
+                            </div>
+                            <div class="text-start">
+                                 <h4 class="fw-bold m-0 text-danger text-start">Dedikodu Kazanı</h4>
+                                 <small class="text-secondary fw-bold text-start d-block">YDS Uzmanlarını Dinle & Öğren!</small>
+                            </div>
+                            <i class="bi bi-chevron-right text-danger ms-auto"></i>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-12">
                     <div class="card border-0 shadow-sm rounded-4 p-3 bg-gradient-primary text-white position-relative overflow-hidden mb-2 bounce-in">
                         <div class="d-flex justify-content-between align-items-center position-relative z-1">
                             <div>
@@ -2247,7 +2256,10 @@ const UI = {
     renderFlashcards(container) {
         if (this.currentFlashcardIndex === 0 || !this.flashcardSession.length) {
             this.currentFlashcardIndex = 0;
-            this.flashcardSession = [...Store.state.words].sort(() => 0.5 - Math.random());
+            // Favorites first, then random
+            const favorites = Store.state.words.filter(w => w.isFavorite).sort(() => 0.5 - Math.random());
+            const others = Store.state.words.filter(w => !w.isFavorite).sort(() => 0.5 - Math.random());
+            this.flashcardSession = [...favorites, ...others];
         }
 
         const words = this.flashcardSession;
