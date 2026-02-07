@@ -15,22 +15,59 @@
     <!-- Custom CSS -->
     <link rel="stylesheet" href="css/style.css">
     <link rel="manifest" href="manifest.json">
+    <style>
+        #error-display {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            color: #ff5555;
+            z-index: 9999;
+            padding: 2rem;
+            font-family: monospace;
+            overflow: auto;
+        }
+
+        #error-content {
+            background: #222;
+            padding: 1rem;
+            border: 1px solid #ff5555;
+            border-radius: 8px;
+            white-space: pre-wrap;
+        }
+    </style>
+    <div id="error-display">
+        <h3 style="color: white;">Uygulama Hatası</h3>
+        <div id="error-content"></div>
+        <button onclick="localStorage.clear(); location.reload();"
+            style="margin-top: 1rem; padding: 0.5rem 1rem; cursor: pointer;">Verileri Temizle ve Yenile</button>
+    </div>
     <script>
-        // GLOBAL ERROR ERROR TRAP
-        // This will alert ANY error preventing the app from loading
+        // GLOBAL ERROR TRAP
         window.onerror = function (msg, url, lineNr, columnNr, error) {
-            alert('HATA OLUŞTU:\n' + msg + '\nDosya: ' + url + '\nSatır: ' + lineNr);
+            const display = document.getElementById('error-display');
+            const content = document.getElementById('error-content');
+            if (display && content) {
+                display.style.display = 'block';
+                content.innerText += `HATA: ${msg}\nDosya: ${url}:${lineNr}:${columnNr}\n\n${error ? error.stack : ''}\n-------------------\n`;
+            }
+            // Also log to console
+            console.error('Global Error:', error);
             return false;
         };
 
-        // Service Worker Disabled for Debugging
-        /*
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js')
-                .then(() => console.log('Service Worker Registered'))
-                .catch((err) => console.log('SW Error:', err));
-        }
-        */
+        // Catch Promise Errors
+        window.addEventListener('unhandledrejection', function (event) {
+            const display = document.getElementById('error-display');
+            const content = document.getElementById('error-content');
+            if (display && content) {
+                display.style.display = 'block';
+                content.innerText += `PROMISE HATASI: ${event.reason}\n-------------------\n`;
+            }
+        });
     </script>
 </head>
 
